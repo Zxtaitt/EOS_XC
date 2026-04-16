@@ -1,0 +1,54 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.32106.194
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ElectricalOverStressDetection", "ElectricalOverStressDetection\ElectricalOverStressDetection.csproj", "{4B2FDE46-B859-4765-AD8C-EB9D2E17AC0C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ElectricalOverStressData", "ElectricalOverStressData\ElectricalOverStressData.csproj", "{69FDEA8B-0F91-4B76-A409-EDDF65B6F6DA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BoardDriver", "BoardDriver\BoardDriver.csproj", "{83C60D1A-05D4-4878-B36A-1B74C1B3F0B0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ElectricalOverStressProcess", "ElectricalOverStressProcess\ElectricalOverStressProcess.csproj", "{F8C45A45-8A45-4739-BC10-F7272D7F012D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OscilloscopeDriver", "OscilloscopeDriver\OscilloscopeDriver.csproj", "{ACF5F3C4-45C7-42D3-A6AE-71FBDF57D1C8}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{AD4D5C36-D88B-4068-812E-07DB868C9FAE}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4B2FDE46-B859-4765-AD8C-EB9D2E17AC0C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4B2FDE46-B859-4765-AD8C-EB9D2E17AC0C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4B2FDE46-B859-4765-AD8C-EB9D2E17AC0C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4B2FDE46-B859-4765-AD8C-EB9D2E17AC0C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{69FDEA8B-0F91-4B76-A409-EDDF65B6F6DA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{69FDEA8B-0F91-4B76-A409-EDDF65B6F6DA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{69FDEA8B-0F91-4B76-A409-EDDF65B6F6DA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{69FDEA8B-0F91-4B76-A409-EDDF65B6F6DA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{83C60D1A-05D4-4878-B36A-1B74C1B3F0B0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{83C60D1A-05D4-4878-B36A-1B74C1B3F0B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{83C60D1A-05D4-4878-B36A-1B74C1B3F0B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{83C60D1A-05D4-4878-B36A-1B74C1B3F0B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F8C45A45-8A45-4739-BC10-F7272D7F012D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F8C45A45-8A45-4739-BC10-F7272D7F012D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F8C45A45-8A45-4739-BC10-F7272D7F012D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F8C45A45-8A45-4739-BC10-F7272D7F012D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ACF5F3C4-45C7-42D3-A6AE-71FBDF57D1C8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ACF5F3C4-45C7-42D3-A6AE-71FBDF57D1C8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ACF5F3C4-45C7-42D3-A6AE-71FBDF57D1C8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ACF5F3C4-45C7-42D3-A6AE-71FBDF57D1C8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {CCB5F3A1-CFF4-4969-84B1-60901CCD9E18}
+	EndGlobalSection
+EndGlobal
