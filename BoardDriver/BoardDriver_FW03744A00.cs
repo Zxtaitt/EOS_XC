@@ -1,0 +1,431 @@
+using System;
+using System.Collections.Generic;
+using System.IO.Ports;
+using System.Linq;
+using System.Net.Sockets;
+using System.Threading;
+
+namespace BoardDriver
+{
+    /// <summary>
+    /// PB3744A 驱动板（325G 协议扩展），仅 TCP 通讯。
+    /// 从 BurninPlatform 移植并精简为 EOS IBoardDriver 接口。
+    /// </summary>
+    public class BoardDriver_FW03744A00 : IBoardDriver
+    {
+        #region IBoardDriver 属性
+
+        public string BoardClientConStr { get; set; }
+        public SerialPort BoardSerialPort { get; set; }
+        public TcpClient BoardClient { get; set; }
+        public byte BoardAddress { get; set; }
+
+        #endregion
+
+        #region 默认参数（对应 BurninPlatform BoardClampConfig 推荐值）
+
+        private const float CspVoltage = 3600f;
+        private const float CsnVoltage = 3600f;
+        private const float ClampVoltagePos = 3000f;
+        private const float ClampVoltageNeg = 0f;
+        private const float ClampCurrentPos = 50f;
+        private const float ClampCurrentNeg = 60f;
+        private const int StepDelayMs = 50;
+        private const int RetryCount = 3;
+        private const int ResponseTimeoutMs = 5000;
+
+        #endregion
+
+        #region 内部状态
+
+        private byte[] _outputModeMask = new byte[6];
+        private bool _initialized;
+
+        #endregion
+
+        #region IBoardDriver 实现
+
+        public void SetBoardAdjustDriveVoltage()
+        {
+            if (_initialized) return;
+
+            SendInitialize();
+            CtrlCspCsn(true);
+            Array.Clear(_outputModeMask, 0, _outputModeMask.Length);
+            SendOutputMode();
+            CtrlAllChannelOutput(true);
+
+            _initialized = true;
+        }
+
+        public void SetBoardClamp(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.Direction Direction)
+        {
+            CtrlAllChannelOutput(false);
+
+            UpdateOutputModeForChannel(Channel, SourceType);
+            SendOutputMode();
+
+            SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
+
+            CtrlSingleChannelOutput(Channel, true);
+        }
+
+        public void SetBoardOnPower(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.PowerMethod PowerMethod, int Step, double SetValue)
+        {
+            double value = ToFirmwareValue(SetValue, SourceType);
+            int stepCount = PowerMethod == BoardDriverEnum.PowerMethod.Single ? 1 : Step;
+            StepPower(Channel, value, stepCount, true);
+        }
+
+        public void SetBoardOFFPower(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.PowerMethod PowerMethod, int Step, double SetValue)
+        {
+            double value = ToFirmwareValue(SetValue, SourceType);
+            int stepCount = PowerMethod == BoardDriverEnum.PowerMethod.Single ? 1 : Step;
+            StepPower(Channel, value, stepCount, false);
+        }
+
+        public void CloseBoardSerialPort()
+        {
+            // TCP 连接由 Process 共享，此处不关闭，与其他 _Net 驱动行为一致
+        }
+
+        public void CloseRelay(int channel)
+        {
+            CtrlSingleChannelOutput(channel, true);
+        }
+
+        public void OpenRelay(int channel)
+        {
+            CtrlSingleChannelOutput(channel, false);
+        }
+
+        #endregion
+
+        #region 325G 指令封装
+
+        /// <summary>
+        /// 初始化命令 0x0A04
+        /// </summary>
+        private void SendInitialize()
+        {
+            Send325GCommand(new byte[] { 0x04, 0x0A });
+        }
+
+        /// <summary>
+        /// CSP/CSN 电源控制 0x0011
+        /// </summary>
+        private void CtrlCspCsn(bool open)
+        {
+            uint flag = (uint)(open ? 1 : 0);
+            float safeVoltage = 3000f;
+
+            List<byte> cmd = new List<byte> { 0x11, 0x00 };
+            float cspVal = open ? CspVoltage : safeVoltage;
+            float csnVal = open ? CsnVoltage : safeVoltage;
+
+            for (int i = 0; i < 2; i++)
+            {
+                cmd.AddRange(BitConverter.GetBytes(flag));
+                cmd.AddRange(BitConverter.GetBytes(cspVal));
+            }
+            for (int i = 0; i < 2; i++)
+            {
+                cmd.AddRange(BitConverter.GetBytes(flag));
+                cmd.AddRange(BitConverter.GetBytes(csnVal));
+            }
+            Send325GCommand(cmd.ToArray());
+        }
+
+        /// <summary>
+        /// 设置所有通道输出模式 0x0112
+        /// bit=0: 电流源, bit=1: 电压源
+        /// </summary>
+        private void SendOutputMode()
+        {
+            byte[] cmd = new byte[] { 0x12, 0x01 }.Concat(_outputModeMask).ToArray();
+            Send325GCommand(cmd);
+        }
+
+        /// <summary>
+        /// 设置所有通道输出开关 0x0111（全开/全关）
+        /// </summary>
+        private void CtrlAllChannelOutput(bool open)
+        {
+            byte fill = open ? (byte)0xFF : (byte)0x00;
+            byte[] param = new byte[6];
+            if (open) for (int i = 0; i < 6; i++) param[i] = fill;
+            byte[] cmd = new byte[] { 0x11, 0x01 }.Concat(param).ToArray();
+            Send325GCommand(cmd);
+        }
+
+        /// <summary>
+        /// 设置单通道输出开关 0x0111（仅指定通道开，其余全关）
+        /// </summary>
+        private void CtrlSingleChannelOutput(int channel, bool open)
+        {
+            byte[] param = new byte[6];
+            if (open)
+            {
+                param[channel / 8] |= (byte)(1 << (channel % 8));
+            }
+            byte[] cmd = new byte[] { 0x11, 0x01 }.Concat(param).ToArray();
+            Send325GCommand(cmd);
+        }
+
+        /// <summary>
+        /// 设置钳位电压/电流 0x0021
+        /// </summary>
+        private void SendClamp(float voltagePos, float voltageNeg, float currentPos, float currentNeg)
+        {
+            List<byte> cmd = new List<byte> { 0x21, 0x00 };
+            cmd.AddRange(BitConverter.GetBytes(voltagePos));
+            cmd.AddRange(BitConverter.GetBytes(voltageNeg));
+            cmd.AddRange(BitConverter.GetBytes(currentPos));
+            cmd.AddRange(BitConverter.GetBytes(currentNeg));
+            Send325GCommand(cmd.ToArray());
+        }
+
+        /// <summary>
+        /// 阶梯上电/下电
+        /// 1. 设置上下电通道 0x0121
+        /// 2. 设置参数并启动 0x0122
+        /// 3. 查询完成状态 0x0131
+        /// </summary>
+        private void StepPower(int channel, double value, int stepCount, bool powerOn)
+        {
+            float fValue = (float)Math.Round(value, 2);
+            float stepSize = (float)Math.Round(fValue / stepCount, 2);
+
+            List<byte> cmd1 = new List<byte> { 0x21, 0x01, (byte)channel, 0xFF };
+            Send325GCommand(cmd1.ToArray());
+
+            List<byte> cmd2 = new List<byte> { 0x22, 0x01 };
+            cmd2.AddRange(BitConverter.GetBytes(powerOn ? 0f : fValue));
+            cmd2.AddRange(BitConverter.GetBytes(stepSize));
+            cmd2.AddRange(BitConverter.GetBytes(powerOn ? fValue : 0f));
+            cmd2.AddRange(BitConverter.GetBytes(stepCount));
+            cmd2.AddRange(BitConverter.GetBytes(StepDelayMs));
+            Send325GCommand(cmd2.ToArray());
+
+            Thread.Sleep(StepDelayMs * stepCount);
+            for (int i = 0; i < 3; i++)
+            {
+                byte[] data = Send325GCommand(new byte[] { 0x31, 0x01 }, false);
+                if (data != null && data.Length >= 1 && data[0] == 0x00)
+                    return;
+                Thread.Sleep(1000);
+            }
+            throw new Exception($"Board step power {(powerOn ? "on" : "off")} timeout");
+        }
+
+        #endregion
+
+        #region 辅助方法
+
+        private void UpdateOutputModeForChannel(int channel, BoardDriverEnum.SourceType sourceType)
+        {
+            if (sourceType == BoardDriverEnum.SourceType.VoltageSource)
+                _outputModeMask[channel / 8] |= (byte)(1 << (channel % 8));
+            else
+                _outputModeMask[channel / 8] &= (byte)~(1 << (channel % 8));
+        }
+
+        private static double ToFirmwareValue(double value, BoardDriverEnum.SourceType sourceType)
+        {
+            return sourceType == BoardDriverEnum.SourceType.VoltageSource
+                ? value * 1000
+                : value;
+        }
+
+        #endregion
+
+        #region 325G 协议通讯层
+
+        /// <summary>
+        /// 发送 325G 指令并返回响应数据段。
+        /// </summary>
+        /// <param name="cmdPayload">指令字节（不含帧头/地址/CRC）</param>
+        /// <param name="checkAck">是否做 ACK 校验（查询类指令传 false）</param>
+        /// <returns>响应数据段（帧头/地址/指令回显/CRC/帧尾 已剥离）</returns>
+        private byte[] Send325GCommand(byte[] cmdPayload, bool checkAck = true)
+        {
+            byte[] frame = WrapFrame(cmdPayload);
+
+            for (int retry = 0; retry < RetryCount; retry++)
+            {
+                try
+                {
+                    byte[] response = TcpSendReceive(frame);
+                    if (response == null || response.Length < 13) continue;
+
+                    byte[] data = ValidateAndExtract(response);
+                    return data;
+                }
+                catch
+                {
+                    Thread.Sleep(100);
+                }
+            }
+            if (checkAck)
+                throw new Exception("325G command failed after retries");
+            return null;
+        }
+
+        /// <summary>
+        /// 325G 帧封装：AA 55 [len_lo len_hi] [addr 00] [cmd...] [crc_lo crc_hi]
+        /// </summary>
+        private byte[] WrapFrame(byte[] cmdPayload)
+        {
+            List<byte> buf = new List<byte>();
+            buf.Add(0xAA);
+            buf.Add(0x55);
+            buf.Add(0x00); // length placeholder
+            buf.Add(0x00);
+            buf.Add(BoardAddress);
+            buf.Add(0x00);
+            buf.AddRange(cmdPayload);
+
+            int totalLen = buf.Count + 2; // +2 for CRC
+            buf[2] = (byte)(totalLen & 0xFF);
+            buf[3] = (byte)((totalLen >> 8) & 0xFF);
+
+            byte[] crc = Crc16Modbus(buf.ToArray());
+            buf.AddRange(crc);
+            return buf.ToArray();
+        }
+
+        /// <summary>
+        /// 校验 325G 响应帧并提取数据段。
+        /// 响应格式：AA 55 [len 2B] [addr 2B] [cmd 2B] [data...] [CRC 2B] [0A 0D]
+        /// </summary>
+        private byte[] ValidateAndExtract(byte[] response)
+        {
+            if (response[0] != 0xAA || response[1] != 0x55)
+                throw new Exception("Invalid 325G response header");
+            if (response[response.Length - 2] != 0x0A || response[response.Length - 1] != 0x0D)
+                throw new Exception("Invalid 325G response tail");
+
+            int crcDataLen = response.Length - 4;
+            byte[] crcInput = new byte[crcDataLen];
+            Array.Copy(response, 0, crcInput, 0, crcDataLen);
+            byte[] crcCalc = Crc16Modbus(crcInput);
+            if (response[crcDataLen] != crcCalc[0] || response[crcDataLen + 1] != crcCalc[1])
+                throw new Exception("325G response CRC mismatch");
+
+            const int frontLen = 8; // AA(1)+55(1)+len(2)+addr(2)+cmd(2)
+            int dataLen = crcDataLen - frontLen;
+            if (dataLen <= 0) return new byte[0];
+
+            byte[] data = new byte[dataLen];
+            Array.Copy(response, frontLen, data, 0, dataLen);
+            return data;
+        }
+
+        /// <summary>
+        /// TCP 收发：发送帧数据，根据帧头长度字段动态读取完整响应。
+        /// </summary>
+        private byte[] TcpSendReceive(byte[] frameData)
+        {
+            lock (BoardClient)
+            {
+                try
+                {
+                    EnsureConnected();
+                    NetworkStream stream = BoardClient.GetStream();
+
+                    if (stream.DataAvailable)
+                    {
+                        byte[] discard = new byte[BoardClient.Available];
+                        stream.Read(discard, 0, discard.Length);
+                    }
+
+                    stream.Write(frameData, 0, frameData.Length);
+                    Thread.Sleep(50);
+
+                    return ReadFullResponse(stream);
+                }
+                catch
+                {
+                    try
+                    {
+                        if (BoardClient != null && !BoardClient.Connected)
+                            BoardClient.Close();
+                    }
+                    catch { }
+                    return null;
+                }
+            }
+        }
+
+        private byte[] ReadFullResponse(NetworkStream stream)
+        {
+            List<byte> buf = new List<byte>();
+            int elapsed = 0;
+            int targetLen = -1;
+
+            while (elapsed < ResponseTimeoutMs)
+            {
+                if (BoardClient.Available > 0)
+                {
+                    byte[] tmp = new byte[BoardClient.Available];
+                    int read = stream.Read(tmp, 0, tmp.Length);
+                    for (int i = 0; i < read; i++) buf.Add(tmp[i]);
+
+                    if (targetLen < 0 && buf.Count >= 4
+                        && buf[0] == 0xAA && buf[1] == 0x55)
+                    {
+                        int frameLen = buf[2] | (buf[3] << 8);
+                        targetLen = frameLen + 2; // +0A 0D tail
+                    }
+
+                    if (targetLen > 0 && buf.Count >= targetLen)
+                        return buf.GetRange(0, targetLen).ToArray();
+                }
+                Thread.Sleep(10);
+                elapsed += 10;
+            }
+            return buf.Count > 0 ? buf.ToArray() : null;
+        }
+
+        private void EnsureConnected()
+        {
+            if (BoardClient.Connected) return;
+
+            string[] parts = BoardClientConStr.Split(':');
+            BoardClient.Connect(parts[0], Convert.ToInt32(parts[1]));
+            NetworkStream ns = BoardClient.GetStream();
+            ns.ReadTimeout = 3000;
+            ns.WriteTimeout = 3000;
+        }
+
+        #endregion
+
+        #region CRC16 (Modbus, 小端，与 BurninPlatform ByteHelper.CRC16_C 一致)
+
+        private static byte[] Crc16Modbus(byte[] buffer)
+        {
+            byte lo = 0xFF, hi = 0xFF;
+            const byte polyLo = 1, polyHi = 160;
+
+            for (int i = 0; i < buffer.Length; i++)
+            {
+                lo ^= buffer[i];
+                for (int j = 0; j < 8; j++)
+                {
+                    byte prevHi = hi, prevLo = lo;
+                    hi = (byte)(hi >> 1);
+                    lo = (byte)(lo >> 1);
+                    if ((prevHi & 1) == 1) lo |= 0x80;
+                    if ((prevLo & 1) == 1)
+                    {
+                        hi ^= polyHi;
+                        lo ^= polyLo;
+                    }
+                }
+            }
+            return new byte[] { lo, hi };
+        }
+
+        #endregion
+    }
+}

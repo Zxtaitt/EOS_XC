@@ -56,6 +56,7 @@
     <Compile Include="BoardDriver_FW0325E00_NET.cs" />
     <Compile Include="BoardDriver_FW0422400.cs" />
     <Compile Include="BoardDriver_FW0422400_Net.cs" />
+    <Compile Include="BoardDriver_FW03744A00.cs" />
     <Compile Include="BoardDriver_HW.cs" />
     <Compile Include="BoardDriver_Macom.cs" />
     <Compile Include="ClampConfig.cs" />

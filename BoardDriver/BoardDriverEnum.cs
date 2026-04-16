@@ -24,7 +24,8 @@ namespace BoardDriver
             FW0325E00_NTE = 12,
             FW0089B00_Net = 13,
             FW0089D00_Net = 14,
-            FW0422400_Net = 15
+            FW0422400_Net = 15,
+            FW03744A00 = 16
         }
         public enum BoardChannel
         {
@@ -42,7 +43,8 @@ namespace BoardDriver
             FW0325E00_NTE = 48,
             FW0089B00_Net = 32,
             FW0089D00_Net=48,
-            FW0422400_Net=96
+            FW0422400_Net=96,
+            FW03744A00 = 48
         }
         public enum SourceType
         {
