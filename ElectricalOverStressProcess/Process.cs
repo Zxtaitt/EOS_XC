@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -98,6 +98,23 @@ namespace ElectricalOverStressProcess
                     break;
                 }
             }
+            if (BoardDirver != null)
+            {
+                foreach (IBoardDriver driver in BoardDirver)
+                {
+                    try
+                    {
+                        if (IsDeferredCloseDriver(driver))
+                        {
+                            ((BoardDriver_FW03744A00)driver).RunEndOfTestInitialization();
+                        }
+                    }
+                    catch
+                    {
+
+                    }
+                }
+            }
             BoardDirver = null;
             ControlEnable();
         }
@@ -150,7 +167,7 @@ namespace ElectricalOverStressProcess
                             break;
                         }
                     }
-                    BoardDirver[BoardDirverIndex].CloseBoardSerialPort();
+                        BoardDirver[BoardDirverIndex].CloseBoardSerialPort();
                     return Result;
                 }
                 else
@@ -166,6 +183,10 @@ namespace ElectricalOverStressProcess
                 SetLog("错误:通道: " + (Channel + 1).ToString() + "EOS异常!" + ex.ToString());
                 return Result;
             }
+        }
+        private bool IsDeferredCloseDriver(IBoardDriver driver)
+        {
+            return driver is BoardDriver_FW03744A00;
         }
         private void ShowColor(DetectionResult Result)
         {

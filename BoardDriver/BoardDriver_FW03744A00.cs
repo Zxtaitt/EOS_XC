@@ -24,11 +24,11 @@ namespace BoardDriver
 
         #region 默认参数（对应 BurninPlatform BoardClampConfig 推荐值）
 
-        private const float CspVoltage = 3600f;
-        private const float CsnVoltage = 3600f;
+        private const float CspVoltage = 7000f;
+        private const float CsnVoltage = 7000f;
         private const float ClampVoltagePos = 3000f;
         private const float ClampVoltageNeg = 0f;
-        private const float ClampCurrentPos = 50f;
+        private const float ClampCurrentPos = 450f;
         private const float ClampCurrentNeg = 60f;
         private const int StepDelayMs = 50;
         private const int RetryCount = 3;
@@ -38,7 +38,6 @@ namespace BoardDriver
 
         #region 内部状态
 
-        private byte[] _outputModeMask = new byte[6];
         private bool _initialized;
 
         #endregion
@@ -51,9 +50,9 @@ namespace BoardDriver
 
             SendInitialize();
             CtrlCspCsn(true);
-            Array.Clear(_outputModeMask, 0, _outputModeMask.Length);
-            SendOutputMode();
-            CtrlAllChannelOutput(true);
+            SendOutputModeForAllChannels(BoardDriverEnum.SourceType.VoltageSource);
+            // 9.2: 整体上电前保持全关，后续仅由 SetBoardClamp 打开待测通道
+            CtrlAllChannelOutput(false);
 
             _initialized = true;
         }
@@ -61,17 +60,13 @@ namespace BoardDriver
         public void SetBoardClamp(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.Direction Direction)
         {
             CtrlAllChannelOutput(false);
-
-            UpdateOutputModeForChannel(Channel, SourceType);
-            SendOutputMode();
-
             SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
-
-            CtrlSingleChannelOutput(Channel, true);
         }
 
         public void SetBoardOnPower(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.PowerMethod PowerMethod, int Step, double SetValue)
         {
+            SendOutputModeForSingleChannel(Channel, SourceType);
+            CtrlSingleChannelOutput(Channel, true);
             double value = ToFirmwareValue(SetValue, SourceType);
             int stepCount = PowerMethod == BoardDriverEnum.PowerMethod.Single ? 1 : Step;
             StepPower(Channel, value, stepCount, true);
@@ -82,11 +77,34 @@ namespace BoardDriver
             double value = ToFirmwareValue(SetValue, SourceType);
             int stepCount = PowerMethod == BoardDriverEnum.PowerMethod.Single ? 1 : Step;
             StepPower(Channel, value, stepCount, false);
+
+            // 9.4: 下电完成后，执行 3.1 + 3.2
+            // 3.1 设置 LD 开关状态（全部关闭）
+            CtrlAllChannelOutput(false);
+            // 3.2 设置 LD 电源模式（全部切换为电压源，bit=1）
+            SendOutputModeForAllChannels(BoardDriverEnum.SourceType.VoltageSource);
         }
 
         public void CloseBoardSerialPort()
         {
-            // TCP 连接由 Process 共享，此处不关闭，与其他 _Net 驱动行为一致
+ 
+
+        }
+
+        /// <summary>
+        /// 9.5 老化结束后通用配置（2.3 -> 2.2 -> 2.1）。
+        /// </summary>
+        public void RunEndOfTestInitialization()
+        {
+            // 2.3 设置 LD 通道钳位电压/电流为 0
+            SendClamp(0f, 0f, 0f, 0f);
+            // 2.2 设置 CSP/CSN 开关状态为断开
+            CtrlCspCsn(false);
+            // 2.1 初始化
+            SendInitialize();
+
+            // 允许下一次流程重新执行初始化阶段
+            _initialized = false;
         }
 
         public void CloseRelay(int channel)
@@ -140,9 +158,9 @@ namespace BoardDriver
         /// 设置所有通道输出模式 0x0112
         /// bit=0: 电流源, bit=1: 电压源
         /// </summary>
-        private void SendOutputMode()
+        private void SendOutputMode(byte[] modeMask)
         {
-            byte[] cmd = new byte[] { 0x12, 0x01 }.Concat(_outputModeMask).ToArray();
+            byte[] cmd = new byte[] { 0x12, 0x01 }.Concat(modeMask).ToArray();
             Send325GCommand(cmd);
         }
 
@@ -166,7 +184,7 @@ namespace BoardDriver
             byte[] param = new byte[6];
             if (open)
             {
-                param[channel / 8] |= (byte)(1 << (channel % 8));
+                param[channel / 8] |= GetChannelBitMask(channel);
             }
             byte[] cmd = new byte[] { 0x11, 0x01 }.Concat(param).ToArray();
             Send325GCommand(cmd);
@@ -193,16 +211,22 @@ namespace BoardDriver
         /// </summary>
         private void StepPower(int channel, double value, int stepCount, bool powerOn)
         {
+            if (stepCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(stepCount), "stepCount must be greater than 0.");
+
             float fValue = (float)Math.Round(value, 2);
-            float stepSize = (float)Math.Round(fValue / stepCount, 2);
+            float startValue = powerOn ? 0f : fValue;
+            float endValue = powerOn ? fValue : 0f;
+            // 步进值由起止点推导，保证升降和正负值场景下方向正确
+            float stepSize = (float)Math.Round((endValue - startValue) / stepCount, 2);
 
             List<byte> cmd1 = new List<byte> { 0x21, 0x01, (byte)channel, 0xFF };
             Send325GCommand(cmd1.ToArray());
 
             List<byte> cmd2 = new List<byte> { 0x22, 0x01 };
-            cmd2.AddRange(BitConverter.GetBytes(powerOn ? 0f : fValue));
+            cmd2.AddRange(BitConverter.GetBytes(startValue));
             cmd2.AddRange(BitConverter.GetBytes(stepSize));
-            cmd2.AddRange(BitConverter.GetBytes(powerOn ? fValue : 0f));
+            cmd2.AddRange(BitConverter.GetBytes(endValue));
             cmd2.AddRange(BitConverter.GetBytes(stepCount));
             cmd2.AddRange(BitConverter.GetBytes(StepDelayMs));
             Send325GCommand(cmd2.ToArray());
@@ -222,12 +246,36 @@ namespace BoardDriver
 
         #region 辅助方法
 
-        private void UpdateOutputModeForChannel(int channel, BoardDriverEnum.SourceType sourceType)
+        private void SendOutputModeForSingleChannel(int channel, BoardDriverEnum.SourceType sourceType)
         {
+            // 默认电压源（bit=1）
+            byte[] modeMask = Enumerable.Repeat((byte)0xFF, 6).ToArray();
+            int byteIndex = channel / 8;
+            byte channelBit = GetChannelBitMask(channel);
             if (sourceType == BoardDriverEnum.SourceType.VoltageSource)
-                _outputModeMask[channel / 8] |= (byte)(1 << (channel % 8));
+                modeMask[byteIndex] |= channelBit;
             else
-                _outputModeMask[channel / 8] &= (byte)~(1 << (channel % 8));
+                modeMask[byteIndex] &= (byte)~channelBit;
+
+            SendOutputMode(modeMask);
+        }
+
+        private void SendOutputModeForAllChannels(BoardDriverEnum.SourceType sourceType)
+        {
+            byte fill = sourceType == BoardDriverEnum.SourceType.VoltageSource ? (byte)0xFF : (byte)0x00;
+            byte[] modeMask = Enumerable.Repeat(fill, 6).ToArray();
+            SendOutputMode(modeMask);
+        }
+
+        /// <summary>
+        /// 通道位映射遵循协议示例：
+        /// 每个 byte 的 bit 对应通道为 [7,6,5,4,3,2,1,0]。
+        /// 即 channel0->bit7, channel7->bit0, channel8->byte1.bit7。
+        /// </summary>
+        private static byte GetChannelBitMask(int channel)
+        {
+            int bitIndex = 7 - (channel % 8);
+            return (byte)(1 << bitIndex);
         }
 
         private static double ToFirmwareValue(double value, BoardDriverEnum.SourceType sourceType)
