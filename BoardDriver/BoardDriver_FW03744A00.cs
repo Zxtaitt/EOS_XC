@@ -34,13 +34,13 @@ namespace BoardDriver
         private const int RetryCount = 3;
         private const int ResponseTimeoutMs = 5000;
 
-        #endregion
+        #endregion 默认参数（对应 BurninPlatform BoardClampConfig 推荐值）
 
         #region 内部状态
 
         private bool _initialized;
 
-        #endregion
+        #endregion 内部状态
 
         #region 调试钩子（仅供 BoardDriver_FW03744A00_Debug 订阅，主程序不订阅则完全无影响）
 
@@ -59,7 +59,7 @@ namespace BoardDriver
             try { handler(direction, bytes, note); } catch { }
         }
 
-        #endregion
+        #endregion 调试钩子（仅供 BoardDriver_FW03744A00_Debug 订阅，主程序不订阅则完全无影响）
 
         #region IBoardDriver 实现
 
@@ -70,7 +70,7 @@ namespace BoardDriver
             SendInitialize();
             CtrlCspCsn(true);
             SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
-     
+
             // 9.2: 整体上电前保持全关，后续仅由 SetBoardClamp 打开待测通道
             CtrlAllChannelOutput(false);
 
@@ -79,8 +79,6 @@ namespace BoardDriver
 
         public void SetBoardClamp(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.Direction Direction)
         {
-          
-
         }
 
         public void SetBoardOnPower(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.PowerMethod PowerMethod, int Step, double SetValue)
@@ -107,8 +105,6 @@ namespace BoardDriver
 
         public void CloseBoardSerialPort()
         {
- 
-
         }
 
         /// <summary>
@@ -137,7 +133,7 @@ namespace BoardDriver
             CtrlSingleChannelOutput(channel, false);
         }
 
-        #endregion
+        #endregion IBoardDriver 实现
 
         #region 325G 指令封装
 
@@ -180,8 +176,8 @@ namespace BoardDriver
         /// </summary>
         private void SendOutputMode(byte[] modeMask)
         {
-            byte[] cmd = new byte[] { 0x12, 0x01 }.Concat(_outputModeMask).ToArray();
-            Send325GCommand(cmd, note: $"设置通道输出模式 0x0112 (mask={BitConverter.ToString(_outputModeMask)})");
+            byte[] cmd = new byte[] { 0x12, 0x01 }.Concat(modeMask).ToArray();
+            Send325GCommand(cmd, note: $"设置通道输出模式 0x0112 (mask={BitConverter.ToString(modeMask)})");
         }
 
         /// <summary>
@@ -260,7 +256,7 @@ namespace BoardDriver
             throw new Exception($"Board step power {(powerOn ? "on" : "off")} timeout");
         }
 
-        #endregion
+        #endregion 325G 指令封装
 
         #region 辅助方法
 
@@ -318,7 +314,7 @@ namespace BoardDriver
                 : value;
         }
 
-        #endregion
+        #endregion 辅助方法
 
         #region 325G 协议通讯层
 
@@ -486,7 +482,7 @@ namespace BoardDriver
             ns.WriteTimeout = 3000;
         }
 
-        #endregion
+        #endregion 325G 协议通讯层
 
         #region CRC16 (Modbus, 小端，与 BurninPlatform ByteHelper.CRC16_C 一致)
 
@@ -514,6 +510,6 @@ namespace BoardDriver
             return new byte[] { lo, hi };
         }
 
-        #endregion
+        #endregion CRC16 (Modbus, 小端，与 BurninPlatform ByteHelper.CRC16_C 一致)
     }
 }
