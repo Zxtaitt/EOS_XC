@@ -43,6 +43,25 @@ namespace BoardDriver
 
         #endregion
 
+        #region 调试钩子（仅供 BoardDriver_FW03744A00_Debug 订阅，主程序不订阅则完全无影响）
+
+        /// <summary>
+        /// 每一次 325G 协议收发都会触发。
+        /// direction: "TX" / "RX" / "ERR"
+        /// bytes: 完整帧字节（ERR 时可能为 null）
+        /// note: 语义注释（指令名 + 关键参数）
+        /// </summary>
+        public event Action<string, byte[], string> OnFrame;
+
+        private void RaiseFrame(string direction, byte[] bytes, string note)
+        {
+            var handler = OnFrame;
+            if (handler == null) return;
+            try { handler(direction, bytes, note); } catch { }
+        }
+
+        #endregion
+
         #region IBoardDriver 实现
 
         public void SetBoardAdjustDriveVoltage()
@@ -108,7 +127,7 @@ namespace BoardDriver
         /// </summary>
         private void SendInitialize()
         {
-            Send325GCommand(new byte[] { 0x04, 0x0A });
+            Send325GCommand(new byte[] { 0x04, 0x0A }, note: "初始化 0x0A04");
         }
 
         /// <summary>
@@ -133,7 +152,7 @@ namespace BoardDriver
                 cmd.AddRange(BitConverter.GetBytes(flag));
                 cmd.AddRange(BitConverter.GetBytes(csnVal));
             }
-            Send325GCommand(cmd.ToArray());
+            Send325GCommand(cmd.ToArray(), note: $"CSP/CSN {(open ? "开" : "关")} 0x0011 (CSP={cspVal}mV CSN={csnVal}mV)");
         }
 
         /// <summary>
@@ -143,7 +162,7 @@ namespace BoardDriver
         private void SendOutputMode()
         {
             byte[] cmd = new byte[] { 0x12, 0x01 }.Concat(_outputModeMask).ToArray();
-            Send325GCommand(cmd);
+            Send325GCommand(cmd, note: $"设置通道输出模式 0x0112 (mask={BitConverter.ToString(_outputModeMask)})");
         }
 
         /// <summary>
@@ -155,7 +174,7 @@ namespace BoardDriver
             byte[] param = new byte[6];
             if (open) for (int i = 0; i < 6; i++) param[i] = fill;
             byte[] cmd = new byte[] { 0x11, 0x01 }.Concat(param).ToArray();
-            Send325GCommand(cmd);
+            Send325GCommand(cmd, note: $"全通道输出{(open ? "开" : "关")} 0x0111");
         }
 
         /// <summary>
@@ -169,7 +188,7 @@ namespace BoardDriver
                 param[channel / 8] |= (byte)(1 << (channel % 8));
             }
             byte[] cmd = new byte[] { 0x11, 0x01 }.Concat(param).ToArray();
-            Send325GCommand(cmd);
+            Send325GCommand(cmd, note: $"单通道输出 CH{channel} {(open ? "开" : "关")} 0x0111");
         }
 
         /// <summary>
@@ -182,7 +201,7 @@ namespace BoardDriver
             cmd.AddRange(BitConverter.GetBytes(voltageNeg));
             cmd.AddRange(BitConverter.GetBytes(currentPos));
             cmd.AddRange(BitConverter.GetBytes(currentNeg));
-            Send325GCommand(cmd.ToArray());
+            Send325GCommand(cmd.ToArray(), note: $"设置钳位 0x0021 (V+={voltagePos}mV V-={voltageNeg}mV I+={currentPos}mA I-={currentNeg}mA)");
         }
 
         /// <summary>
@@ -196,8 +215,9 @@ namespace BoardDriver
             float fValue = (float)Math.Round(value, 2);
             float stepSize = (float)Math.Round(fValue / stepCount, 2);
 
+            string action = powerOn ? "上电" : "下电";
             List<byte> cmd1 = new List<byte> { 0x21, 0x01, (byte)channel, 0xFF };
-            Send325GCommand(cmd1.ToArray());
+            Send325GCommand(cmd1.ToArray(), note: $"设置{action}通道 CH{channel} 0x0121");
 
             List<byte> cmd2 = new List<byte> { 0x22, 0x01 };
             cmd2.AddRange(BitConverter.GetBytes(powerOn ? 0f : fValue));
@@ -205,12 +225,12 @@ namespace BoardDriver
             cmd2.AddRange(BitConverter.GetBytes(powerOn ? fValue : 0f));
             cmd2.AddRange(BitConverter.GetBytes(stepCount));
             cmd2.AddRange(BitConverter.GetBytes(StepDelayMs));
-            Send325GCommand(cmd2.ToArray());
+            Send325GCommand(cmd2.ToArray(), note: $"{action}参数启动 CH{channel} 目标={fValue} 步长={stepSize} 步数={stepCount} 步延时={StepDelayMs}ms 0x0122");
 
             Thread.Sleep(StepDelayMs * stepCount);
             for (int i = 0; i < 3; i++)
             {
-                byte[] data = Send325GCommand(new byte[] { 0x31, 0x01 }, false);
+                byte[] data = Send325GCommand(new byte[] { 0x31, 0x01 }, false, note: $"查询{action}完成 CH{channel} 0x0131 (poll {i + 1}/3)");
                 if (data != null && data.Length >= 1 && data[0] == 0x00)
                     return;
                 Thread.Sleep(1000);
@@ -247,7 +267,7 @@ namespace BoardDriver
         /// <param name="cmdPayload">指令字节（不含帧头/地址/CRC）</param>
         /// <param name="checkAck">是否做 ACK 校验（查询类指令传 false）</param>
         /// <returns>响应数据段（帧头/地址/指令回显/CRC/帧尾 已剥离）</returns>
-        private byte[] Send325GCommand(byte[] cmdPayload, bool checkAck = true)
+        private byte[] Send325GCommand(byte[] cmdPayload, bool checkAck = true, string note = null)
         {
             byte[] frame = WrapFrame(cmdPayload);
 
@@ -255,14 +275,21 @@ namespace BoardDriver
             {
                 try
                 {
+                    RaiseFrame("TX", frame, note);
                     byte[] response = TcpSendReceive(frame);
-                    if (response == null || response.Length < 13) continue;
+                    if (response == null || response.Length < 13)
+                    {
+                        RaiseFrame("ERR", response, (note ?? "") + $" : 响应为空或长度不足 (retry {retry + 1}/{RetryCount})");
+                        continue;
+                    }
 
+                    RaiseFrame("RX", response, note);
                     byte[] data = ValidateAndExtract(response);
                     return data;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    RaiseFrame("ERR", null, (note ?? "") + $" : {ex.Message} (retry {retry + 1}/{RetryCount})");
                     Thread.Sleep(100);
                 }
             }
