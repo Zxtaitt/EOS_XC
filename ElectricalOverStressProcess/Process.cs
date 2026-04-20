@@ -21,6 +21,8 @@ namespace ElectricalOverStressProcess
         public event EventHandler ControlEnableHandler;
         public event EventHandler LogHandler;
         public event EventHandler ShowColorHandler;
+        // 临时调试开关：true 时屏蔽示波器相关调用，仅验证驱动板上/下电流程。
+        private const bool DisableOscilloscopeForDebug = false;
         private VisaComInstrument Oscilloscope;
         private List<IBoardDriver> BoardDirver;
         private int StartChannel;
@@ -45,7 +47,7 @@ namespace ElectricalOverStressProcess
             try
             {
                 Message = "";
-                if (Oscilloscope == null)
+                if (!DisableOscilloscopeForDebug && Oscilloscope == null)
                 {
                     Oscilloscope = new VisaComInstrument(Communication.OtherItem.OscilloscopeAaddress);
                     Oscilloscope.SetTimeoutSeconds(10);
@@ -131,8 +133,11 @@ namespace ElectricalOverStressProcess
                     SetLog("通道: " + (Channel + 1).ToString() + "开始验证!");
                     foreach(ChannelItem Item in Plan.ChannelItem[BaseChannel + 1])
                     {
-                        OscilloscopeSet(Item);                        
-                        System.Threading.Thread.Sleep(1000);
+                        if (!DisableOscilloscopeForDebug)
+                        {
+                            OscilloscopeSet(Item);
+                            System.Threading.Thread.Sleep(1000);
+                        }
                         BoardDriverEnum.Direction Direction = BoardDriverEnum.Direction.Positive;
                         if (Item.SourceValue < 0)
                         {
@@ -148,19 +153,27 @@ namespace ElectricalOverStressProcess
                         BoardDirver[BoardDirverIndex].SetBoardOFFPower(BaseChannel, Item.SourceType, Item.SetMethod, Item.StepCount, Item.SourceValue);
                         SetLog("通道: " + (Channel + 1).ToString() + "完成下电!");
                         System.Threading.Thread.Sleep(3000);
-                        string Read = Oscilloscope.DoQueryString(":TER?");
-                        if (!Read.Contains("+1"))
+                        if (DisableOscilloscopeForDebug)
                         {
-                            SetLog("通道: " + (Channel + 1).ToString() + "未触发示波器!");
-                            BoardDirver[BoardDirverIndex].CloseBoardSerialPort();
-                            Result.Result = DataEnum.Result.Fail;
-                            return Result;
+                            SetLog("通道: " + (Channel + 1).ToString() + "已屏蔽示波器流程（调试模式）!");
+                            Result.Result = DataEnum.Result.Pass;
                         }
-                        byte[] ResultsArray = Oscilloscope.DoQueryIEEEBlock(":DISPlay:DATA? PNG, COLor");
-                        string SaveName = "Channel_" + (Channel + 1).ToString() + "-" + Item.SourceType.ToString() + "_" + Item.SourceValue.ToString();
-                        SaveIamge(ResultsArray, SaveName);
-                        SetLog("保存图片: 《" + SaveName + "》完成!");
-                        Result.Result = DataEnum.Result.Pass;
+                        else
+                        {
+                            string Read = Oscilloscope.DoQueryString(":TER?");
+                            if (!Read.Contains("+1"))
+                            {
+                                SetLog("通道: " + (Channel + 1).ToString() + "未触发示波器!");
+                                BoardDirver[BoardDirverIndex].CloseBoardSerialPort();
+                                Result.Result = DataEnum.Result.Fail;
+                                return Result;
+                            }
+                            byte[] ResultsArray = Oscilloscope.DoQueryIEEEBlock(":DISPlay:DATA? PNG, COLor");
+                            string SaveName = "Channel_" + (Channel + 1).ToString() + "-" + Item.SourceType.ToString() + "_" + Item.SourceValue.ToString();
+                            SaveIamge(ResultsArray, SaveName);
+                            SetLog("保存图片: 《" + SaveName + "》完成!");
+                            Result.Result = DataEnum.Result.Pass;
+                        }
                         if (Stop)
                         {
                             SetLog("人工停止!");

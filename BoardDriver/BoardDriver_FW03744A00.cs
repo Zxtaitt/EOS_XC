@@ -27,9 +27,9 @@ namespace BoardDriver
         private const float CspVoltage = 7000f;
         private const float CsnVoltage = 7000f;
         private const float ClampVoltagePos = 3000f;
-        private const float ClampVoltageNeg = 0f;
+        private const float ClampVoltageNeg = 3000f;
         private const float ClampCurrentPos = 450f;
-        private const float ClampCurrentNeg = 60f;
+        private const float ClampCurrentNeg = 450f;
         private const int StepDelayMs = 50;
         private const int RetryCount = 3;
         private const int ResponseTimeoutMs = 5000;
@@ -50,7 +50,8 @@ namespace BoardDriver
 
             SendInitialize();
             CtrlCspCsn(true);
-            SendOutputModeForAllChannels(BoardDriverEnum.SourceType.VoltageSource);
+            SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
+     
             // 9.2: 整体上电前保持全关，后续仅由 SetBoardClamp 打开待测通道
             CtrlAllChannelOutput(false);
 
@@ -59,8 +60,8 @@ namespace BoardDriver
 
         public void SetBoardClamp(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.Direction Direction)
         {
-            CtrlAllChannelOutput(false);
-            SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
+          
+
         }
 
         public void SetBoardOnPower(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.PowerMethod PowerMethod, int Step, double SetValue)
@@ -181,11 +182,8 @@ namespace BoardDriver
         /// </summary>
         private void CtrlSingleChannelOutput(int channel, bool open)
         {
-            byte[] param = new byte[6];
-            if (open)
-            {
-                param[channel / 8] |= GetChannelBitMask(channel);
-            }
+            ValidateChannelRange(channel);
+            byte[] param = open ? BuildSingleChannelMask(channel) : new byte[6];
             byte[] cmd = new byte[] { 0x11, 0x01 }.Concat(param).ToArray();
             Send325GCommand(cmd);
         }
@@ -248,6 +246,8 @@ namespace BoardDriver
 
         private void SendOutputModeForSingleChannel(int channel, BoardDriverEnum.SourceType sourceType)
         {
+            ValidateChannelRange(channel);
+
             // 默认电压源（bit=1）
             byte[] modeMask = Enumerable.Repeat((byte)0xFF, 6).ToArray();
             int byteIndex = channel / 8;
@@ -268,14 +268,27 @@ namespace BoardDriver
         }
 
         /// <summary>
-        /// 通道位映射遵循协议示例：
-        /// 每个 byte 的 bit 对应通道为 [7,6,5,4,3,2,1,0]。
-        /// 即 channel0->bit7, channel7->bit0, channel8->byte1.bit7。
+        /// 通道位映射：
+        /// 每个 byte 的 bit 对应通道为 [0,1,2,3,4,5,6,7]。
+        /// 即 channel0->bit0(0x01), channel7->bit7(0x80), channel8->byte1.bit0。
         /// </summary>
         private static byte GetChannelBitMask(int channel)
         {
-            int bitIndex = 7 - (channel % 8);
+            int bitIndex = channel % 8;
             return (byte)(1 << bitIndex);
+        }
+
+        private static byte[] BuildSingleChannelMask(int channel)
+        {
+            byte[] mask = new byte[6];
+            mask[channel / 8] = GetChannelBitMask(channel);
+            return mask;
+        }
+
+        private static void ValidateChannelRange(int channel)
+        {
+            if (channel < 0 || channel >= 48)
+                throw new ArgumentOutOfRangeException(nameof(channel), "channel must be in range [0, 47].");
         }
 
         private static double ToFirmwareValue(double value, BoardDriverEnum.SourceType sourceType)
