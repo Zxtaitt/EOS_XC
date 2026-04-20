@@ -122,6 +122,7 @@ namespace BoardDriver_FW03744A00_Debug
             {
                 MessageBox.Show(this, "持续时间无效", "提示"); return;
             }
+            int stepCount = (int)numStep.Value;
 
             _busy = true;
             _cts = new CancellationTokenSource();
@@ -130,12 +131,12 @@ namespace BoardDriver_FW03744A00_Debug
             string unit = source == BoardDriverEnum.SourceType.VoltageSource ? "mV" : "mA";
             string srcText = source == BoardDriverEnum.SourceType.VoltageSource ? "电压源" : "电流源";
             string dirText = direction == BoardDriverEnum.Direction.Negative ? "负向" : "正向";
-            AppendLog("INFO", null, $"========== 开始测试 CH{channel} {srcText} {dirText} {setValue}{unit} 持续 {durationSec}s ==========");
+            AppendLog("INFO", null, $"========== 开始测试 CH{channel} {srcText} {dirText} {setValue}{unit} 持续 {durationSec}s 上下电步数={stepCount} ==========");
 
             var token = _cts.Token;
             try
             {
-                await Task.Run(() => RunTestSequence(channel, source, direction, setValue, durationSec, token), token);
+                await Task.Run(() => RunTestSequence(channel, source, direction, setValue, durationSec, stepCount, token), token);
                 AppendLog("INFO", null, "========== 测试完成 ==========");
             }
             catch (OperationCanceledException)
@@ -154,8 +155,10 @@ namespace BoardDriver_FW03744A00_Debug
         }
 
         private void RunTestSequence(int channel, BoardDriverEnum.SourceType source, BoardDriverEnum.Direction direction,
-                                     double setValue, double durationSec, CancellationToken token)
+                                     double setValue, double durationSec, int stepCount, CancellationToken token)
         {
+            var method = stepCount <= 1 ? BoardDriverEnum.PowerMethod.Single : BoardDriverEnum.PowerMethod.Step;
+
             AppendLog("INFO", null, "[步骤1] 初始化 + CSP/CSN + 全通道输出准备");
             _driver.SetBoardAdjustDriveVoltage();
             token.ThrowIfCancellationRequested();
@@ -164,15 +167,15 @@ namespace BoardDriver_FW03744A00_Debug
             _driver.SetBoardClamp(channel, source, direction);
             token.ThrowIfCancellationRequested();
 
-            AppendLog("INFO", null, $"[步骤3] 阶梯上电到目标值 {setValue}");
-            _driver.SetBoardOnPower(channel, source, BoardDriverEnum.PowerMethod.Single, 1, setValue);
+            AppendLog("INFO", null, $"[步骤3] 阶梯上电到目标值 {setValue}（{stepCount} 步）");
+            _driver.SetBoardOnPower(channel, source, method, stepCount, setValue);
             token.ThrowIfCancellationRequested();
 
             AppendLog("INFO", null, $"[步骤4] 保持 {durationSec}s （请在此期间观察示波器波形）");
             RunHold(durationSec, token);
 
-            AppendLog("INFO", null, "[步骤5] 阶梯下电");
-            _driver.SetBoardOFFPower(channel, source, BoardDriverEnum.PowerMethod.Single, 1, setValue);
+            AppendLog("INFO", null, $"[步骤5] 阶梯下电（{stepCount} 步）");
+            _driver.SetBoardOFFPower(channel, source, method, stepCount, setValue);
 
             AppendLog("INFO", null, "[步骤6] 关闭通道输出");
             _driver.OpenRelay(channel);
@@ -224,6 +227,7 @@ namespace BoardDriver_FW03744A00_Debug
             int channel;
             try { channel = (int)cmbChannel.SelectedItem; } catch { return; }
 
+            int stepCount = (int)numStep.Value;
             Task.Run(() =>
             {
                 try
@@ -232,8 +236,9 @@ namespace BoardDriver_FW03744A00_Debug
                         ? BoardDriverEnum.SourceType.VoltageSource
                         : BoardDriverEnum.SourceType.CurrentSource;
                     double.TryParse(txtValue.Text.Trim(), out double v);
-                    AppendLog("INFO", null, "[紧急下电] 阶梯下电 + 关通道");
-                    _driver.SetBoardOFFPower(channel, source, BoardDriverEnum.PowerMethod.Single, 1, v);
+                    var method = stepCount <= 1 ? BoardDriverEnum.PowerMethod.Single : BoardDriverEnum.PowerMethod.Step;
+                    AppendLog("INFO", null, $"[紧急下电] 阶梯下电（{stepCount} 步）+ 关通道");
+                    _driver.SetBoardOFFPower(channel, source, method, stepCount, v);
                     _driver.OpenRelay(channel);
                 }
                 catch (Exception ex)
@@ -255,6 +260,7 @@ namespace BoardDriver_FW03744A00_Debug
             rdoNegative.Enabled = !testing;
             txtValue.Enabled = !testing;
             txtDuration.Enabled = !testing;
+            numStep.Enabled = !testing;
             if (!testing)
             {
                 progressBar.Value = 0;

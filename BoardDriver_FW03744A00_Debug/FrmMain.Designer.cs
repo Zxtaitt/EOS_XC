@@ -30,6 +30,8 @@ namespace BoardDriver_FW03744A00_Debug
             this.progressBar = new System.Windows.Forms.ProgressBar();
             this.btnStop = new System.Windows.Forms.Button();
             this.btnStart = new System.Windows.Forms.Button();
+            this.numStep = new System.Windows.Forms.NumericUpDown();
+            this.lblStep = new System.Windows.Forms.Label();
             this.lblDurationUnit = new System.Windows.Forms.Label();
             this.txtDuration = new System.Windows.Forms.TextBox();
             this.lblDuration = new System.Windows.Forms.Label();
@@ -52,6 +54,7 @@ namespace BoardDriver_FW03744A00_Debug
             this.btnClearLog = new System.Windows.Forms.Button();
             this.grpConnect.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numAddress)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numStep)).BeginInit();
             this.grpTest.SuspendLayout();
             this.grpLog.SuspendLayout();
             this.pnlLogButtons.SuspendLayout();
@@ -165,6 +168,8 @@ namespace BoardDriver_FW03744A00_Debug
             this.grpTest.Controls.Add(this.progressBar);
             this.grpTest.Controls.Add(this.btnStop);
             this.grpTest.Controls.Add(this.btnStart);
+            this.grpTest.Controls.Add(this.numStep);
+            this.grpTest.Controls.Add(this.lblStep);
             this.grpTest.Controls.Add(this.lblDurationUnit);
             this.grpTest.Controls.Add(this.txtDuration);
             this.grpTest.Controls.Add(this.lblDuration);
@@ -320,6 +325,25 @@ namespace BoardDriver_FW03744A00_Debug
             this.lblDurationUnit.TabIndex = 13;
             this.lblDurationUnit.Text = "秒";
             //
+            // lblStep
+            //
+            this.lblStep.AutoSize = true;
+            this.lblStep.Location = new System.Drawing.Point(425, 70);
+            this.lblStep.Name = "lblStep";
+            this.lblStep.Size = new System.Drawing.Size(52, 14);
+            this.lblStep.TabIndex = 18;
+            this.lblStep.Text = "上下电步数:";
+            //
+            // numStep
+            //
+            this.numStep.Location = new System.Drawing.Point(505, 67);
+            this.numStep.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+            this.numStep.Maximum = new decimal(new int[] { 50, 0, 0, 0 });
+            this.numStep.Name = "numStep";
+            this.numStep.Size = new System.Drawing.Size(55, 23);
+            this.numStep.TabIndex = 19;
+            this.numStep.Value = new decimal(new int[] { 5, 0, 0, 0 });
+            //
             // btnStart
             //
             this.btnStart.Enabled = false;
@@ -444,6 +468,7 @@ namespace BoardDriver_FW03744A00_Debug
             this.grpConnect.ResumeLayout(false);
             this.grpConnect.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numAddress)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numStep)).EndInit();
             this.grpTest.ResumeLayout(false);
             this.grpTest.PerformLayout();
             this.grpLog.ResumeLayout(false);
@@ -477,6 +502,8 @@ namespace BoardDriver_FW03744A00_Debug
         private System.Windows.Forms.Label lblDuration;
         private System.Windows.Forms.TextBox txtDuration;
         private System.Windows.Forms.Label lblDurationUnit;
+        private System.Windows.Forms.Label lblStep;
+        private System.Windows.Forms.NumericUpDown numStep;
         private System.Windows.Forms.Button btnStart;
         private System.Windows.Forms.Button btnStop;
         private System.Windows.Forms.ProgressBar progressBar;

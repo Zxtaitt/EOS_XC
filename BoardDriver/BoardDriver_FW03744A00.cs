@@ -458,8 +458,9 @@ namespace BoardDriver
                     if (targetLen < 0 && buf.Count >= 4
                         && buf[0] == 0xAA && buf[1] == 0x55)
                     {
+                        // length 字段为整帧长度（已含 0A 0D 尾），不再额外 +2
                         int frameLen = buf[2] | (buf[3] << 8);
-                        targetLen = frameLen + 2; // +0A 0D tail
+                        targetLen = frameLen;
                     }
 
                     if (targetLen > 0 && buf.Count >= targetLen)
