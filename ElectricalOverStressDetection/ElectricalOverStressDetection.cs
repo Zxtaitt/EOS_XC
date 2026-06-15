@@ -22,6 +22,8 @@ namespace ElectricalOverStressDetection
         private CommunicationInfo Communication;
         private DataPlan Plan;
         private Task ProcessTask;
+        private OscilloscopeCapture CaptureProcess;
+        private Task CaptureTask;
         public ElectricalOverStressDetection()
         {
             InitializeComponent();
@@ -90,7 +92,14 @@ namespace ElectricalOverStressDetection
 
         private void button_Stop_Click(object sender, EventArgs e)
         {
-            DetectionProcess.Stop = true;
+            if (DetectionProcess != null)
+            {
+                DetectionProcess.Stop = true;
+            }
+            if (CaptureProcess != null)
+            {
+                CaptureProcess.Stop = true;
+            }
             ButtonControl(true);
             if (fsi != null)
             {
@@ -99,6 +108,49 @@ namespace ElectricalOverStressDetection
             }
             ClearLog();
             propertyGrid_ShowInfo.SelectedObject = null;
+        }
+
+        private void button_Capture_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!File.Exists(Global.CommunicationPathName))
+                {
+                    MessageBox.Show("错误:未获取到通讯配置信息!");
+                    return;
+                }
+                StreamReader sr = File.OpenText(Global.CommunicationPathName);
+                Communication = DataTool.GetClassDeserializationXML(sr.ReadToEnd(), typeof(CommunicationInfo)) as CommunicationInfo;
+                sr.Close();
+
+                string PlanFile = Global.PlanPath + Communication.OtherItem.PlanName + ".xml";
+                if (!File.Exists(PlanFile))
+                {
+                    MessageBox.Show("错误:未找到测试计划文件! " + PlanFile);
+                    return;
+                }
+                sr = File.OpenText(PlanFile);
+                Plan = DataTool.GetClassDeserializationXML(sr.ReadToEnd(), typeof(DataPlan)) as DataPlan;
+                sr.Close();
+
+                if (Plan == null || Plan.ChannelItem == null || !Plan.ChannelItem.ContainsKey(1)
+                    || Plan.ChannelItem[1] == null || Plan.ChannelItem[1].Count == 0)
+                {
+                    MessageBox.Show("错误:计划中通道1没有配置，无法确定采图参数!");
+                    return;
+                }
+
+                CaptureProcess = new OscilloscopeCapture(Communication, Plan);
+                CaptureProcess.LogHandler += Log_Hander;
+                CaptureProcess.CompletedHandler += ControlEnable_Hander;
+                ButtonControl(false);
+                CaptureTask = new Task(CaptureProcess.Run);
+                CaptureTask.Start();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
         }
 
         private void button_Plan_Click(object sender, EventArgs e)
@@ -140,6 +192,7 @@ namespace ElectricalOverStressDetection
             this.Invoke(new MethodInvoker(() =>
             {
                 button_Start.Enabled = Enable;
+                button_Capture.Enabled = Enable;
                 button_Stop.Enabled = !Enable;
             }));
         }

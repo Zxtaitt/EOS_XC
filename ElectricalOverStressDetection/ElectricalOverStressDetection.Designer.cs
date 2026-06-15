@@ -32,6 +32,7 @@
             this.tableLayoutPanel_Button = new System.Windows.Forms.TableLayoutPanel();
             this.button_Start = new System.Windows.Forms.Button();
             this.button_Stop = new System.Windows.Forms.Button();
+            this.button_Capture = new System.Windows.Forms.Button();
             this.propertyGrid_ShowInfo = new System.Windows.Forms.PropertyGrid();
             this.richTextBox_Log = new System.Windows.Forms.RichTextBox();
             this.tableLayoutPanel_Setting = new System.Windows.Forms.TableLayoutPanel();
@@ -75,6 +76,7 @@
             this.tableLayoutPanel_Button.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 20F));
             this.tableLayoutPanel_Button.Controls.Add(this.button_Start, 1, 0);
             this.tableLayoutPanel_Button.Controls.Add(this.button_Stop, 3, 0);
+            this.tableLayoutPanel_Button.Controls.Add(this.button_Capture, 2, 0);
             this.tableLayoutPanel_Button.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel_Button.Location = new System.Drawing.Point(1, 1);
             this.tableLayoutPanel_Button.Margin = new System.Windows.Forms.Padding(0);
@@ -108,6 +110,17 @@
             this.button_Stop.Text = "停止";
             this.button_Stop.UseVisualStyleBackColor = true;
             this.button_Stop.Click += new System.EventHandler(this.button_Stop_Click);
+            // 
+            // button_Capture
+            // 
+            this.button_Capture.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.button_Capture.Font = new System.Drawing.Font("宋体", 15.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.button_Capture.Name = "button_Capture";
+            this.button_Capture.Size = new System.Drawing.Size(229, 35);
+            this.button_Capture.TabIndex = 2;
+            this.button_Capture.Text = "连续采图";
+            this.button_Capture.UseVisualStyleBackColor = true;
+            this.button_Capture.Click += new System.EventHandler(this.button_Capture_Click);
             // 
             // propertyGrid_ShowInfo
             // 
@@ -215,6 +228,7 @@
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel_Button;
         private System.Windows.Forms.Button button_Start;
         private System.Windows.Forms.Button button_Stop;
+        private System.Windows.Forms.Button button_Capture;
         private System.Windows.Forms.PropertyGrid propertyGrid_ShowInfo;
         private System.Windows.Forms.RichTextBox richTextBox_Log;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel_Setting;
