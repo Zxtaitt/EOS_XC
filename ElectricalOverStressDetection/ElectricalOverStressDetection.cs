@@ -24,6 +24,8 @@ namespace ElectricalOverStressDetection
         private Task ProcessTask;
         private OscilloscopeCapture CaptureProcess;
         private Task CaptureTask;
+        private GroupCapture PairCaptureProcess;
+        private Task PairCaptureTask;
         public ElectricalOverStressDetection()
         {
             InitializeComponent();
@@ -100,6 +102,10 @@ namespace ElectricalOverStressDetection
             {
                 CaptureProcess.Stop = true;
             }
+            if (PairCaptureProcess != null)
+            {
+                PairCaptureProcess.Stop = true;
+            }
             ButtonControl(true);
             if (fsi != null)
             {
@@ -153,6 +159,42 @@ namespace ElectricalOverStressDetection
             }
         }
 
+        private void button_PairCapture_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!File.Exists(Global.CommunicationPathName))
+                {
+                    MessageBox.Show("错误:未获取到通讯配置信息!");
+                    return;
+                }
+                StreamReader sr = File.OpenText(Global.CommunicationPathName);
+                Communication = DataTool.GetClassDeserializationXML(sr.ReadToEnd(), typeof(CommunicationInfo)) as CommunicationInfo;
+                sr.Close();
+
+                string PlanFile = Global.PlanPath + Communication.OtherItem.PlanName + ".xml";
+                if (!File.Exists(PlanFile))
+                {
+                    MessageBox.Show("错误:未找到测试计划文件! " + PlanFile);
+                    return;
+                }
+                sr = File.OpenText(PlanFile);
+                Plan = DataTool.GetClassDeserializationXML(sr.ReadToEnd(), typeof(DataPlan)) as DataPlan;
+                sr.Close();
+
+                PairCaptureProcess = new GroupCapture(Communication, Plan);
+                PairCaptureProcess.LogHandler += Log_Hander;
+                PairCaptureProcess.CompletedHandler += ControlEnable_Hander;
+                ButtonControl(false);
+                PairCaptureTask = new Task(PairCaptureProcess.Run);
+                PairCaptureTask.Start();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
         private void button_Plan_Click(object sender, EventArgs e)
         {
             FrmPlanSetting fp = new FrmPlanSetting();
@@ -193,6 +235,7 @@ namespace ElectricalOverStressDetection
             {
                 button_Start.Enabled = Enable;
                 button_Capture.Enabled = Enable;
+                button_PairCapture.Enabled = Enable;
                 button_Stop.Enabled = !Enable;
             }));
         }

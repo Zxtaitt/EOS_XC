@@ -22,7 +22,7 @@ namespace ElectricalOverStressProcess
         public event EventHandler LogHandler;
         public event EventHandler ShowColorHandler;
         // 临时调试开关：true 时屏蔽示波器相关调用，仅验证驱动板上/下电流程。
-        private const bool DisableOscilloscopeForDebug = true;
+        private const bool DisableOscilloscopeForDebug = false;
         private VisaComInstrument Oscilloscope;
         private List<IBoardDriver> BoardDirver;
         private int StartChannel;

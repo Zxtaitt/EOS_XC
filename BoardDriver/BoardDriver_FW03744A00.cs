@@ -78,7 +78,7 @@ namespace BoardDriver
 
             SendInitialize();
             CtrlCspCsn(true);
-           // SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
+            // SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
             // 9.2: 整体上电前保持全关，后续仅由 SetBoardClamp 打开待测通道
             //    CtrlAllChannelOutput(false);
 
@@ -87,9 +87,7 @@ namespace BoardDriver
 
         public void SetBoardClamp(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.Direction Direction)
         {
-
-
-            SendClamp(0, 0, 0,0);
+            SendClamp(0, 0, 0, 0);
 
             CtrlAllChannelOutput(false);
 
@@ -97,18 +95,15 @@ namespace BoardDriver
             // 2) 按类型配置通道模式并开通道写预值
             // 3) 开通道后根据类型/方向应用目标钳位
             // SendClamp(3000, 0,0, 0);
-        
+
             SendOutputModeForSingleChannel(Channel, SourceType);
-   
-            StepPower(Channel, GetClampPreOpenValue(SourceType, Direction), 1, true);
-           
+
+            //StepPower(Channel, GetClampPreOpenValue(SourceType, Direction), 1, true);
 
             CtrlSingleChannelOutput(Channel, true);
 
-
             var clamp = GetClampBySourceAndDirection(SourceType, Direction);
             SendClamp(clamp.VoltagePos, clamp.VoltageNeg, clamp.CurrentPos, clamp.CurrentNeg);
-
         }
 
         public void SetBoardOnPower(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.PowerMethod PowerMethod, int Step, double SetValue)
@@ -140,7 +135,6 @@ namespace BoardDriver
             }
 
             CtrlSingleChannelOutput(Channel, false);
-
         }
 
         public void CloseBoardSerialPort()
@@ -174,6 +168,71 @@ namespace BoardDriver
         }
 
         #endregion IBoardDriver 实现
+
+        #region 组操作（两两采图模式）
+
+        /// <summary>
+        /// 组钳位：一次性把这一组通道都钳位并开启输出（组内通道互不关闭）。
+        /// 源类型/方向按传入的统一参数处理（通常取组内第一个通道的配置）。
+        /// </summary>
+        public void SetGroupClamp(int[] channels, BoardDriverEnum.SourceType sourceType, BoardDriverEnum.Direction direction)
+        {
+            SendClamp(0, 0, 0, 0);
+            CtrlAllChannelOutput(false);
+            foreach (int channel in channels)
+            {
+                SendOutputModeForSingleChannel(channel, sourceType);
+                StepPower(channel, GetClampPreOpenValue(sourceType, direction), 1, true);
+            }
+            CtrlMultiChannelOutput(channels, true);
+            var clamp = GetClampBySourceAndDirection(sourceType, direction);
+            SendClamp(clamp.VoltagePos, clamp.VoltageNeg, clamp.CurrentPos, clamp.CurrentNeg);
+        }
+
+        /// <summary>
+        /// 单通道下电到 0，但不关闭通道输出（组模式：组内通道需保持开启直到整组下电完成）。
+        /// </summary>
+        public void OffPowerChannelKeepOutput(int channel, BoardDriverEnum.SourceType sourceType, BoardDriverEnum.PowerMethod powerMethod, int step, double setValue)
+        {
+            double value = ToFirmwareValue(setValue, sourceType);
+            if (powerMethod == BoardDriverEnum.PowerMethod.Single)
+            {
+                SendSingleChannelPower(channel, true, sourceType, 0);
+            }
+            else
+            {
+                int stepCount = step <= 0 ? 1 : step;
+                StepPower(channel, value, stepCount, false);
+            }
+        }
+
+        /// <summary>
+        /// 关闭一组通道输出（整组下电完成后调用）。
+        /// </summary>
+        public void CloseGroupOutput(int[] channels)
+        {
+            CtrlMultiChannelOutput(channels, false);
+        }
+
+        /// <summary>
+        /// 设置多通道输出开关 0x0111（一次开启指定的一组通道；open=false 时关闭所有通道）。
+        /// </summary>
+        private void CtrlMultiChannelOutput(int[] channels, bool open)
+        {
+            byte[] param = new byte[6];
+            if (open)
+            {
+                foreach (int channel in channels)
+                {
+                    ValidateChannelRange(channel);
+                    param[channel / 8] |= GetChannelBitMask(channel);
+                }
+            }
+            byte[] cmd = new byte[] { 0x11, 0x01 }.Concat(param).ToArray();
+            Send325GCommand(cmd, note: $"组通道输出{(open ? "开" : "关")} 0x0111 ({string.Join(",", channels)})");
+        }
+
+        #endregion 组操作（两两采图模式）
 
         #region 325G 指令封装
 
@@ -381,7 +440,7 @@ namespace BoardDriver
             {
                 return 0.01;
             }
-            return direction == BoardDriverEnum.Direction.Positive ? -1: 1;
+            return direction == BoardDriverEnum.Direction.Positive ? -1 : 1;
         }
 
         private static double GetOffPowerSafeValue(BoardDriverEnum.SourceType sourceType, double setValue)
@@ -526,8 +585,10 @@ namespace BoardDriver
             {
                 case TransportMode.Serial:
                     return true;
+
                 case TransportMode.Tcp:
                     return false;
+
                 default:
                     return BoardSerialPort != null && !string.IsNullOrWhiteSpace(BoardSerialPort.PortName);
             }

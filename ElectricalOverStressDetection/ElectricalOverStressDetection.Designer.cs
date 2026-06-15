@@ -33,6 +33,7 @@
             this.button_Start = new System.Windows.Forms.Button();
             this.button_Stop = new System.Windows.Forms.Button();
             this.button_Capture = new System.Windows.Forms.Button();
+            this.button_PairCapture = new System.Windows.Forms.Button();
             this.propertyGrid_ShowInfo = new System.Windows.Forms.PropertyGrid();
             this.richTextBox_Log = new System.Windows.Forms.RichTextBox();
             this.tableLayoutPanel_Setting = new System.Windows.Forms.TableLayoutPanel();
@@ -77,6 +78,7 @@
             this.tableLayoutPanel_Button.Controls.Add(this.button_Start, 1, 0);
             this.tableLayoutPanel_Button.Controls.Add(this.button_Stop, 3, 0);
             this.tableLayoutPanel_Button.Controls.Add(this.button_Capture, 2, 0);
+            this.tableLayoutPanel_Button.Controls.Add(this.button_PairCapture, 4, 0);
             this.tableLayoutPanel_Button.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel_Button.Location = new System.Drawing.Point(1, 1);
             this.tableLayoutPanel_Button.Margin = new System.Windows.Forms.Padding(0);
@@ -121,6 +123,17 @@
             this.button_Capture.Text = "连续采图";
             this.button_Capture.UseVisualStyleBackColor = true;
             this.button_Capture.Click += new System.EventHandler(this.button_Capture_Click);
+            // 
+            // button_PairCapture
+            // 
+            this.button_PairCapture.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.button_PairCapture.Font = new System.Drawing.Font("宋体", 15.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.button_PairCapture.Name = "button_PairCapture";
+            this.button_PairCapture.Size = new System.Drawing.Size(229, 35);
+            this.button_PairCapture.TabIndex = 3;
+            this.button_PairCapture.Text = "两两采图";
+            this.button_PairCapture.UseVisualStyleBackColor = true;
+            this.button_PairCapture.Click += new System.EventHandler(this.button_PairCapture_Click);
             // 
             // propertyGrid_ShowInfo
             // 
@@ -229,6 +242,7 @@
         private System.Windows.Forms.Button button_Start;
         private System.Windows.Forms.Button button_Stop;
         private System.Windows.Forms.Button button_Capture;
+        private System.Windows.Forms.Button button_PairCapture;
         private System.Windows.Forms.PropertyGrid propertyGrid_ShowInfo;
         private System.Windows.Forms.RichTextBox richTextBox_Log;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel_Setting;
