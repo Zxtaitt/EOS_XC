@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -25,7 +25,8 @@ namespace BoardDriver
             FW0089B00_Net = 13,
             FW0089D00_Net = 14,
             FW0422400_Net = 15,
-            FW03744A00 = 16
+            FW03744A00 = 16,
+            FW03744A00_Serial = 17
         }
         public enum BoardChannel
         {
@@ -44,7 +45,8 @@ namespace BoardDriver
             FW0089B00_Net = 32,
             FW0089D00_Net=48,
             FW0422400_Net=96,
-            FW03744A00 = 48
+            FW03744A00 = 48,
+            FW03744A00_Serial = 48
         }
         public enum SourceType
         {

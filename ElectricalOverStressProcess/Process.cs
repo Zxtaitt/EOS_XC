@@ -22,7 +22,7 @@ namespace ElectricalOverStressProcess
         public event EventHandler LogHandler;
         public event EventHandler ShowColorHandler;
         // 临时调试开关：true 时屏蔽示波器相关调用，仅验证驱动板上/下电流程。
-        private const bool DisableOscilloscopeForDebug = false;
+        private const bool DisableOscilloscopeForDebug = true;
         private VisaComInstrument Oscilloscope;
         private List<IBoardDriver> BoardDirver;
         private int StartChannel;
@@ -77,6 +77,11 @@ namespace ElectricalOverStressProcess
                             iBoardDirver.BoardClientConStr = ipaddr;
                             iBoardDirver.BoardClient = tcpClient;
                             iBoardDirver.BoardAddress = (byte)BoardItem.BoardAddress;
+                            if (iBoardDirver is BoardDriver_FW03744A00_Serial serialDriver)
+                            {
+                                ConfigureSerial3744Driver(serialDriver, Communication.OtherItem.BoardSerialPort);
+                                serialDriver.ConnectSerialClient();
+                            }
                             BoardDirver.Add(iBoardDirver);
                             iBoardDirver.SetBoardAdjustDriveVoltage();
                         }
@@ -133,53 +138,53 @@ namespace ElectricalOverStressProcess
                     SetLog("通道: " + (Channel + 1).ToString() + "开始验证!");
                     foreach(ChannelItem Item in Plan.ChannelItem[BaseChannel + 1])
                     {
-                        if (!DisableOscilloscopeForDebug)
-                        {
-                            OscilloscopeSet(Item);
-                            System.Threading.Thread.Sleep(1000);
-                        }
-                        BoardDriverEnum.Direction Direction = BoardDriverEnum.Direction.Positive;
-                        if (Item.SourceValue < 0)
-                        {
-                            Direction = BoardDriverEnum.Direction.Negative;
-                        }
-                        SetLog("通道: " + (Channel + 1).ToString() + "开始钳制!");
-                        BoardDirver[BoardDirverIndex].SetBoardClamp(BaseChannel, Item.SourceType, Direction);
-                        SetLog("通道: " + (Channel + 1).ToString() + "完成钳制!");
-                        System.Threading.Thread.Sleep(1000);
-                        BoardDirver[BoardDirverIndex].SetBoardOnPower(BaseChannel, Item.SourceType, Item.SetMethod, Item.StepCount, Item.SourceValue);
-                        SetLog("通道: " + (Channel + 1).ToString() + "完成加电!");
-                        System.Threading.Thread.Sleep(1000);
-                        BoardDirver[BoardDirverIndex].SetBoardOFFPower(BaseChannel, Item.SourceType, Item.SetMethod, Item.StepCount, Item.SourceValue);
-                        SetLog("通道: " + (Channel + 1).ToString() + "完成下电!");
-                        System.Threading.Thread.Sleep(3000);
-                        if (DisableOscilloscopeForDebug)
-                        {
-                            SetLog("通道: " + (Channel + 1).ToString() + "已屏蔽示波器流程（调试模式）!");
-                            Result.Result = DataEnum.Result.Pass;
-                        }
-                        else
-                        {
-                            string Read = Oscilloscope.DoQueryString(":TER?");
-                            if (!Read.Contains("+1"))
+                            if (!DisableOscilloscopeForDebug)
                             {
-                                SetLog("通道: " + (Channel + 1).ToString() + "未触发示波器!");
-                                BoardDirver[BoardDirverIndex].CloseBoardSerialPort();
-                                Result.Result = DataEnum.Result.Fail;
-                                return Result;
+                                OscilloscopeSet(Item);
+                                System.Threading.Thread.Sleep(1000);
                             }
-                            byte[] ResultsArray = Oscilloscope.DoQueryIEEEBlock(":DISPlay:DATA? PNG, COLor");
-                            string SaveName = "Channel_" + (Channel + 1).ToString() + "-" + Item.SourceType.ToString() + "_" + Item.SourceValue.ToString();
-                            SaveIamge(ResultsArray, SaveName);
-                            SetLog("保存图片: 《" + SaveName + "》完成!");
-                            Result.Result = DataEnum.Result.Pass;
+                            BoardDriverEnum.Direction Direction = BoardDriverEnum.Direction.Positive;
+                            if (Item.SourceValue < 0)
+                            {
+                                Direction = BoardDriverEnum.Direction.Negative;
+                            }
+                            SetLog("通道: " + (Channel + 1).ToString() + "开始钳制!");
+                            BoardDirver[BoardDirverIndex].SetBoardClamp(BaseChannel, Item.SourceType, Direction);
+                            SetLog("通道: " + (Channel + 1).ToString() + "完成钳制!");
+                            System.Threading.Thread.Sleep(500);
+                            BoardDirver[BoardDirverIndex].SetBoardOnPower(BaseChannel, Item.SourceType, Item.SetMethod, Item.StepCount, Item.SourceValue);
+                            SetLog("通道: " + (Channel + 1).ToString() + "完成加电!");
+                            System.Threading.Thread.Sleep(500);
+                            BoardDirver[BoardDirverIndex].SetBoardOFFPower(BaseChannel, Item.SourceType, Item.SetMethod, Item.StepCount, Item.SourceValue);
+                            SetLog("通道: " + (Channel + 1).ToString() + "完成下电!");
+                            System.Threading.Thread.Sleep(3000);
+                            if (DisableOscilloscopeForDebug)
+                            {
+                                SetLog("通道: " + (Channel + 1).ToString() + "已屏蔽示波器流程（调试模式）!");
+                                Result.Result = DataEnum.Result.Pass;
+                            }
+                            else
+                            {
+                                string Read = Oscilloscope.DoQueryString(":TER?");
+                                if (!Read.Contains("+1"))
+                                {
+                                    SetLog("通道: " + (Channel + 1).ToString() + "未触发示波器!");
+                                    BoardDirver[BoardDirverIndex].CloseBoardSerialPort();
+                                    Result.Result = DataEnum.Result.Fail;
+                                    return Result;
+                                }
+                                byte[] ResultsArray = Oscilloscope.DoQueryIEEEBlock(":DISPlay:DATA? PNG, COLor");
+                                string SaveName = "Channel_" + (Channel + 1).ToString() + "-" + Item.SourceType.ToString() + "_" + Item.SourceValue.ToString();
+                                SaveIamge(ResultsArray, SaveName);
+                                SetLog("保存图片: 《" + SaveName + "》完成!");
+                                Result.Result = DataEnum.Result.Pass;
+                            }
+                            if (Stop)
+                            {
+                                SetLog("人工停止!");
+                                break;
+                            }
                         }
-                        if (Stop)
-                        {
-                            SetLog("人工停止!");
-                            break;
-                        }
-                    }
                         BoardDirver[BoardDirverIndex].CloseBoardSerialPort();
                     return Result;
                 }
@@ -249,6 +254,81 @@ namespace ElectricalOverStressProcess
                 }
             }
             return tp;
+        }
+        private void ConfigureSerial3744Driver(BoardDriver_FW03744A00_Serial serialDriver, string serialConfig)
+        {
+            // 配置格式：
+            // COM3
+            // 或 COM3,115200,N,8,1,3000,3000
+            string[] parts = (serialConfig ?? "").Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+            {
+                throw new Exception("Serial config is empty for FW03744A00_Serial");
+            }
+
+            string portName = parts[0].Trim();
+            SerialPort sp = serialDriver.BoardSerialPort;
+            if (sp == null || !string.Equals(sp.PortName, portName, StringComparison.OrdinalIgnoreCase))
+            {
+                sp = new SerialPort(portName, 115200);
+                serialDriver.BoardSerialPort = sp;
+            }
+
+            if (parts.Length > 1 && int.TryParse(parts[1].Trim(), out int baud)) serialDriver.BaudRate = baud;
+            if (parts.Length > 2 && TryParseParity(parts[2].Trim(), out Parity parity)) serialDriver.Parity = parity;
+            if (parts.Length > 3 && int.TryParse(parts[3].Trim(), out int dataBits)) serialDriver.DataBits = dataBits;
+            if (parts.Length > 4 && TryParseStopBits(parts[4].Trim(), out StopBits stopBits)) serialDriver.StopBits = stopBits;
+            if (parts.Length > 5 && int.TryParse(parts[5].Trim(), out int readTimeout)) serialDriver.ReadTimeoutMs = readTimeout;
+            if (parts.Length > 6 && int.TryParse(parts[6].Trim(), out int writeTimeout)) serialDriver.WriteTimeoutMs = writeTimeout;
+        }
+
+        private bool TryParseParity(string text, out Parity parity)
+        {
+            parity = Parity.None;
+            switch ((text ?? "").Trim().ToUpperInvariant())
+            {
+                case "N":
+                case "NONE":
+                    parity = Parity.None;
+                    return true;
+                case "O":
+                case "ODD":
+                    parity = Parity.Odd;
+                    return true;
+                case "E":
+                case "EVEN":
+                    parity = Parity.Even;
+                    return true;
+                case "M":
+                case "MARK":
+                    parity = Parity.Mark;
+                    return true;
+                case "S":
+                case "SPACE":
+                    parity = Parity.Space;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private bool TryParseStopBits(string text, out StopBits stopBits)
+        {
+            stopBits = StopBits.One;
+            switch ((text ?? "").Trim())
+            {
+                case "1":
+                    stopBits = StopBits.One;
+                    return true;
+                case "1.5":
+                    stopBits = StopBits.OnePointFive;
+                    return true;
+                case "2":
+                    stopBits = StopBits.Two;
+                    return true;
+                default:
+                    return false;
+            }
         }
         private void SaveIamge(byte[] ResultsArray, string name)
         {

@@ -13,24 +13,32 @@ namespace BoardDriver
     /// </summary>
     public class BoardDriver_FW03744A00 : IBoardDriver
     {
+        public enum TransportMode
+        {
+            Auto = 0,
+            Tcp = 1,
+            Serial = 2
+        }
+
         #region IBoardDriver 属性
 
         public string BoardClientConStr { get; set; }
         public SerialPort BoardSerialPort { get; set; }
         public TcpClient BoardClient { get; set; }
         public byte BoardAddress { get; set; }
+        public TransportMode PreferredTransport { get; set; } = TransportMode.Auto;
 
         #endregion IBoardDriver 属性
 
         #region 默认参数（对应 BurninPlatform BoardClampConfig 推荐值）
 
-        private const float CspVoltage = 7000f;
-        private const float CsnVoltage = 7000f;
+        private const float CspVoltage = 3600f;
+        private const float CsnVoltage = 3600f;
         private const float ClampVoltagePos = 3000f;
         private const float ClampVoltageNeg = 3000f;
         private const float ClampCurrentPos = 450f;
         private const float ClampCurrentNeg = 450f;
-        private const int StepDelayMs = 50;
+        private const int StepDelayMs = 100;
         private const int RetryCount = 3;
         private const int ResponseTimeoutMs = 5000;
 
@@ -39,6 +47,7 @@ namespace BoardDriver
         #region 内部状态
 
         private bool _initialized;
+        private readonly object _ioLock = new object();
 
         #endregion 内部状态
 
@@ -69,38 +78,69 @@ namespace BoardDriver
 
             SendInitialize();
             CtrlCspCsn(true);
-            SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
-
+           // SendClamp(ClampVoltagePos, ClampVoltageNeg, ClampCurrentPos, ClampCurrentNeg);
             // 9.2: 整体上电前保持全关，后续仅由 SetBoardClamp 打开待测通道
-            CtrlAllChannelOutput(false);
+            //    CtrlAllChannelOutput(false);
 
             _initialized = true;
         }
 
         public void SetBoardClamp(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.Direction Direction)
         {
+
+
+            SendClamp(0, 0, 0,0);
+
+            CtrlAllChannelOutput(false);
+
+            // 1) 开通道前钳位
+            // 2) 按类型配置通道模式并开通道写预值
+            // 3) 开通道后根据类型/方向应用目标钳位
+            // SendClamp(3000, 0,0, 0);
+        
+            SendOutputModeForSingleChannel(Channel, SourceType);
+   
+            StepPower(Channel, GetClampPreOpenValue(SourceType, Direction), 1, true);
+           
+
+            CtrlSingleChannelOutput(Channel, true);
+
+
+            var clamp = GetClampBySourceAndDirection(SourceType, Direction);
+            SendClamp(clamp.VoltagePos, clamp.VoltageNeg, clamp.CurrentPos, clamp.CurrentNeg);
+
         }
 
         public void SetBoardOnPower(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.PowerMethod PowerMethod, int Step, double SetValue)
         {
-            SendOutputModeForSingleChannel(Channel, SourceType);
-            CtrlSingleChannelOutput(Channel, true);
             double value = ToFirmwareValue(SetValue, SourceType);
-            int stepCount = PowerMethod == BoardDriverEnum.PowerMethod.Single ? 1 : Step;
-            StepPower(Channel, value, stepCount, true);
+            if (PowerMethod == BoardDriverEnum.PowerMethod.Single)
+            {
+                SendSingleChannelPower(Channel, true, SourceType, value);
+            }
+            else
+            {
+                int stepCount = Step <= 0 ? 1 : Step;
+                StepPower(Channel, value, stepCount, true);
+            }
         }
 
         public void SetBoardOFFPower(int Channel, BoardDriverEnum.SourceType SourceType, BoardDriverEnum.PowerMethod PowerMethod, int Step, double SetValue)
         {
+            // 先下到安全值，再关闭通道输出
             double value = ToFirmwareValue(SetValue, SourceType);
-            int stepCount = PowerMethod == BoardDriverEnum.PowerMethod.Single ? 1 : Step;
-            StepPower(Channel, value, stepCount, false);
+            if (PowerMethod == BoardDriverEnum.PowerMethod.Single)
+            {
+                SendSingleChannelPower(Channel, true, SourceType, 0);
+            }
+            else
+            {
+                int stepCount = Step <= 0 ? 1 : Step;
+                StepPower(Channel, value, stepCount, false);
+            }
 
-            // 9.4: 下电完成后，执行 3.1 + 3.2
-            // 3.1 设置 LD 开关状态（全部关闭）
-            CtrlAllChannelOutput(false);
-            // 3.2 设置 LD 电源模式（全部切换为电压源，bit=1）
-            SendOutputModeForAllChannels(BoardDriverEnum.SourceType.VoltageSource);
+            CtrlSingleChannelOutput(Channel, false);
+
         }
 
         public void CloseBoardSerialPort()
@@ -231,7 +271,7 @@ namespace BoardDriver
             float startValue = powerOn ? 0f : fValue;
             float endValue = powerOn ? fValue : 0f;
             // 步进值由起止点推导，保证升降和正负值场景下方向正确
-            float stepSize = (float)Math.Round((endValue - startValue) / stepCount, 2);
+            float stepSize = (float)Math.Round((endValue - startValue) / stepCount, 4);
 
             string action = powerOn ? "上电" : "下电";
             List<byte> cmd1 = new List<byte> { 0x21, 0x01, (byte)channel, 0xFF };
@@ -254,6 +294,27 @@ namespace BoardDriver
                 Thread.Sleep(1000);
             }
             throw new Exception($"Board step power {(powerOn ? "on" : "off")} timeout");
+        }
+
+        /// <summary>
+        /// 3.7 设置单通道上下电参数（0x0211）。
+        /// 参数：
+        /// uint32_t 通道号
+        /// uint32_t 0:关闭 1:打开
+        /// uint32_t 电压源1/电流源0
+        /// float    电压/电流值
+        /// </summary>
+        private void SendSingleChannelPower(int channel, bool open, BoardDriverEnum.SourceType sourceType, double setValue)
+        {
+            ValidateChannelRange(channel);
+            List<byte> cmd = new List<byte> { 0x11, 0x02 };
+            cmd.AddRange(BitConverter.GetBytes((uint)channel));
+            cmd.AddRange(BitConverter.GetBytes(open ? 1u : 0u));
+            cmd.AddRange(BitConverter.GetBytes(sourceType == BoardDriverEnum.SourceType.VoltageSource ? 1u : 0u));
+            cmd.AddRange(BitConverter.GetBytes((float)Math.Round(setValue, 2)));
+            Send325GCommand(
+                cmd.ToArray(),
+                note: $"单通道{(open ? "上电" : "下电")} 0x0211 CH{channel} mode={(sourceType == BoardDriverEnum.SourceType.VoltageSource ? "V" : "I")} value={setValue}");
         }
 
         #endregion 325G 指令封装
@@ -314,6 +375,45 @@ namespace BoardDriver
                 : value;
         }
 
+        private static double GetClampPreOpenValue(BoardDriverEnum.SourceType sourceType, BoardDriverEnum.Direction direction)
+        {
+            if (sourceType == BoardDriverEnum.SourceType.VoltageSource)
+            {
+                return 0.01;
+            }
+            return direction == BoardDriverEnum.Direction.Positive ? -1: 1;
+        }
+
+        private static double GetOffPowerSafeValue(BoardDriverEnum.SourceType sourceType, double setValue)
+        {
+            if (sourceType == BoardDriverEnum.SourceType.VoltageSource)
+            {
+                return 0;
+            }
+            return setValue > 0 ? 0.5 : -0.5;
+        }
+
+        private (float VoltagePos, float VoltageNeg, float CurrentPos, float CurrentNeg) GetClampBySourceAndDirection(
+            BoardDriverEnum.SourceType sourceType,
+            BoardDriverEnum.Direction direction)
+        {
+            // 参考 FW0325E00：电流源以电压钳位为主，电压源以电流钳位为主
+            if (sourceType == BoardDriverEnum.SourceType.CurrentSource)
+            {
+                if (direction == BoardDriverEnum.Direction.Positive)
+                {
+                    return (ClampVoltagePos, 0f, 0f, 0f);
+                }
+                return (0f, ClampVoltageNeg, 0f, 0f);
+            }
+
+            if (direction == BoardDriverEnum.Direction.Positive)
+            {
+                return (0f, 0f, ClampCurrentPos, 0f);
+            }
+            return (0f, 0f, 0f, ClampCurrentNeg);
+        }
+
         #endregion 辅助方法
 
         #region 325G 协议通讯层
@@ -333,7 +433,7 @@ namespace BoardDriver
                 try
                 {
                     RaiseFrame("TX", frame, note);
-                    byte[] response = TcpSendReceive(frame);
+                    byte[] response = SendReceive(frame);
                     if (response == null || response.Length < 13)
                     {
                         RaiseFrame("ERR", response, (note ?? "") + $" : 响应为空或长度不足 (retry {retry + 1}/{RetryCount})");
@@ -406,38 +506,62 @@ namespace BoardDriver
         }
 
         /// <summary>
+        /// 按当前连接类型收发：串口优先，否则 TCP。
+        /// </summary>
+        private byte[] SendReceive(byte[] frameData)
+        {
+            lock (_ioLock)
+            {
+                if (UseSerialTransport())
+                {
+                    return SerialSendReceive(frameData);
+                }
+                return TcpSendReceive(frameData);
+            }
+        }
+
+        protected virtual bool UseSerialTransport()
+        {
+            switch (PreferredTransport)
+            {
+                case TransportMode.Serial:
+                    return true;
+                case TransportMode.Tcp:
+                    return false;
+                default:
+                    return BoardSerialPort != null && !string.IsNullOrWhiteSpace(BoardSerialPort.PortName);
+            }
+        }
+
+        /// <summary>
         /// TCP 收发：发送帧数据，根据帧头长度字段动态读取完整响应。
         /// </summary>
         private byte[] TcpSendReceive(byte[] frameData)
         {
-            lock (BoardClient)
+            try
+            {
+                EnsureConnected();
+                NetworkStream stream = BoardClient.GetStream();
+
+                if (stream.DataAvailable)
+                {
+                    byte[] discard = new byte[BoardClient.Available];
+                    stream.Read(discard, 0, discard.Length);
+                }
+
+                stream.Write(frameData, 0, frameData.Length);
+                Thread.Sleep(50);
+                return ReadFullResponse(stream);
+            }
+            catch
             {
                 try
                 {
-                    EnsureConnected();
-                    NetworkStream stream = BoardClient.GetStream();
-
-                    if (stream.DataAvailable)
-                    {
-                        byte[] discard = new byte[BoardClient.Available];
-                        stream.Read(discard, 0, discard.Length);
-                    }
-
-                    stream.Write(frameData, 0, frameData.Length);
-                    Thread.Sleep(50);
-
-                    return ReadFullResponse(stream);
+                    if (BoardClient != null && !BoardClient.Connected)
+                        BoardClient.Close();
                 }
-                catch
-                {
-                    try
-                    {
-                        if (BoardClient != null && !BoardClient.Connected)
-                            BoardClient.Close();
-                    }
-                    catch { }
-                    return null;
-                }
+                catch { }
+                return null;
             }
         }
 
@@ -481,6 +605,74 @@ namespace BoardDriver
             NetworkStream ns = BoardClient.GetStream();
             ns.ReadTimeout = 3000;
             ns.WriteTimeout = 3000;
+        }
+
+        /// <summary>
+        /// 串口收发：发送帧数据，按 325G 帧头长度读取响应。
+        /// </summary>
+        private byte[] SerialSendReceive(byte[] frameData)
+        {
+            try
+            {
+                EnsureSerialConnected();
+                if (BoardSerialPort.BytesToRead > 0)
+                {
+                    byte[] discard = new byte[BoardSerialPort.BytesToRead];
+                    BoardSerialPort.Read(discard, 0, discard.Length);
+                }
+                BoardSerialPort.Write(frameData, 0, frameData.Length);
+                return ReadFullResponseSerial();
+            }
+            catch
+            {
+                try
+                {
+                    if (BoardSerialPort != null && BoardSerialPort.IsOpen)
+                        BoardSerialPort.Close();
+                }
+                catch { }
+                return null;
+            }
+        }
+
+        private byte[] ReadFullResponseSerial()
+        {
+            List<byte> buf = new List<byte>();
+            int elapsed = 0;
+            int targetLen = -1;
+
+            while (elapsed < ResponseTimeoutMs)
+            {
+                if (BoardSerialPort.BytesToRead > 0)
+                {
+                    byte[] tmp = new byte[BoardSerialPort.BytesToRead];
+                    int read = BoardSerialPort.Read(tmp, 0, tmp.Length);
+                    for (int i = 0; i < read; i++) buf.Add(tmp[i]);
+
+                    if (targetLen < 0 && buf.Count >= 4
+                        && buf[0] == 0xAA && buf[1] == 0x55)
+                    {
+                        int frameLen = buf[2] | (buf[3] << 8);
+                        targetLen = frameLen;
+                    }
+
+                    if (targetLen > 0 && buf.Count >= targetLen)
+                        return buf.GetRange(0, targetLen).ToArray();
+                }
+                Thread.Sleep(10);
+                elapsed += 10;
+            }
+            return buf.Count > 0 ? buf.ToArray() : null;
+        }
+
+        private void EnsureSerialConnected()
+        {
+            if (BoardSerialPort == null)
+                throw new Exception("BoardSerialPort is null");
+            if (BoardSerialPort.IsOpen) return;
+            BoardSerialPort.ReadTimeout = 3000;
+            BoardSerialPort.WriteTimeout = 3000;
+            BoardSerialPort.Open();
         }
 
         #endregion 325G 协议通讯层
