@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Threading;
+using System.Xml.Serialization;
 using ElectricalOverStressData;
 
 namespace ElectricalOverStressData
@@ -103,12 +105,7 @@ namespace ElectricalOverStressData
             {
                 if (ChannelItem != null)
                 {
-                    if (CalibrationItem.Keys.Contains(RightClickChannel))
-                    {
-                        CalibrationItem.Remove(RightClickChannel);
-                    }
-                    CalibrationItem.Add(RightClickChannel, ChannelItem);
-                    SetButtonChannelYellow(RightClickChannel);
+                    PasteToChannel(RightClickChannel);
                 }
                 else
                 {
@@ -118,6 +115,175 @@ namespace ElectricalOverStressData
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
+            }
+        }
+        private void BatchPasteToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (ChannelItem == null)
+                {
+                    MessageBox.Show("请先复制条件!");
+                    return;
+                }
+                string input;
+                if (!ShowChannelRangeInput(out input))
+                {
+                    return;
+                }
+                List<int> targets = ParseChannelNumbers(input);
+                if (targets.Count == 0)
+                {
+                    MessageBox.Show("未输入有效的通道!");
+                    return;
+                }
+                foreach (int channel in targets)
+                {
+                    PasteToChannel(channel);
+                }
+                MessageBox.Show("已批量粘贴到 " + targets.Count + " 个通道!");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+        private void PasteToChannel(int channel)
+        {
+            if (CalibrationItem.Keys.Contains(channel))
+            {
+                CalibrationItem.Remove(channel);
+            }
+            CalibrationItem.Add(channel, CloneChannelItems(ChannelItem));
+            SetButtonChannelYellow(channel);
+        }
+        private static List<ChannelItem> CloneChannelItems(List<ChannelItem> source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+            XmlSerializer serializer = new XmlSerializer(typeof(List<ChannelItem>));
+            using (MemoryStream ms = new MemoryStream())
+            {
+                serializer.Serialize(ms, source);
+                ms.Position = 0;
+                return (List<ChannelItem>)serializer.Deserialize(ms);
+            }
+        }
+        private List<int> ParseChannelNumbers(string input)
+        {
+            List<int> result = new List<int>();
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return result;
+            }
+            string normalized = input.Replace("，", ",").Replace("－", "-").Replace(" ", "").Trim();
+            if (normalized == "全部" || normalized.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                for (int i = 1; i <= ChannelCount; i++)
+                {
+                    result.Add(i);
+                }
+                return result;
+            }
+            string[] tokens = normalized.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string token in tokens)
+            {
+                if (token.Contains("-"))
+                {
+                    string[] range = token.Split('-');
+                    if (range.Length != 2)
+                    {
+                        throw new Exception("通道格式错误: " + token);
+                    }
+                    int start = ParseChannelNumber(range[0]);
+                    int end = ParseChannelNumber(range[1]);
+                    if (start > end)
+                    {
+                        int temp = start;
+                        start = end;
+                        end = temp;
+                    }
+                    for (int i = start; i <= end; i++)
+                    {
+                        if (!result.Contains(i))
+                        {
+                            result.Add(i);
+                        }
+                    }
+                }
+                else
+                {
+                    int channel = ParseChannelNumber(token);
+                    if (!result.Contains(channel))
+                    {
+                        result.Add(channel);
+                    }
+                }
+            }
+            return result;
+        }
+        private int ParseChannelNumber(string text)
+        {
+            int channel;
+            if (!int.TryParse(text, out channel))
+            {
+                throw new Exception("无效的通道: " + text);
+            }
+            if (channel < 1 || channel > ChannelCount)
+            {
+                throw new Exception("通道超出范围(1~" + ChannelCount + "): " + channel);
+            }
+            return channel;
+        }
+        private bool ShowChannelRangeInput(out string result)
+        {
+            result = "";
+            using (Form inputForm = new Form())
+            {
+                inputForm.Text = "批量粘贴";
+                inputForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+                inputForm.StartPosition = FormStartPosition.CenterParent;
+                inputForm.MinimizeBox = false;
+                inputForm.MaximizeBox = false;
+                inputForm.ShowIcon = false;
+                inputForm.ShowInTaskbar = false;
+                inputForm.ClientSize = new Size(330, 140);
+
+                Label label = new Label();
+                label.AutoSize = false;
+                label.SetBounds(12, 12, 306, 50);
+                label.Text = "复制源: 通道" + RightClickChannel + "  (可粘贴范围 1~" + ChannelCount + ")\r\n"
+                    + "粘贴到通道, 例: 1-16  或  2,4,6  或  全部";
+
+                TextBox textBox = new TextBox();
+                textBox.SetBounds(12, 66, 306, 25);
+                textBox.Text = "1-" + ChannelCount;
+
+                Button okButton = new Button();
+                okButton.Text = "确定";
+                okButton.DialogResult = DialogResult.OK;
+                okButton.SetBounds(152, 100, 78, 30);
+
+                Button cancelButton = new Button();
+                cancelButton.Text = "取消";
+                cancelButton.DialogResult = DialogResult.Cancel;
+                cancelButton.SetBounds(240, 100, 78, 30);
+
+                inputForm.Controls.Add(label);
+                inputForm.Controls.Add(textBox);
+                inputForm.Controls.Add(okButton);
+                inputForm.Controls.Add(cancelButton);
+                inputForm.AcceptButton = okButton;
+                inputForm.CancelButton = cancelButton;
+
+                if (inputForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    result = textBox.Text;
+                    return true;
+                }
+                return false;
             }
         }
         private void LoadingItem()
@@ -193,7 +359,11 @@ namespace ElectricalOverStressData
             PasteToolStripMenuItem.Name = "PasteToolStripMenuItem";
             PasteToolStripMenuItem.Text = "粘贴";
             PasteToolStripMenuItem.Click += new EventHandler(PasteToolStripMenuItem_Click);
-            ChannelContextMenuStrip.Items.AddRange(new ToolStripItem[] { CopyToolStripMenuItem, PasteToolStripMenuItem });
+            ToolStripMenuItem BatchPasteToolStripMenuItem = new ToolStripMenuItem();
+            BatchPasteToolStripMenuItem.Name = "BatchPasteToolStripMenuItem";
+            BatchPasteToolStripMenuItem.Text = "批量粘贴";
+            BatchPasteToolStripMenuItem.Click += new EventHandler(BatchPasteToolStripMenuItem_Click);
+            ChannelContextMenuStrip.Items.AddRange(new ToolStripItem[] { CopyToolStripMenuItem, PasteToolStripMenuItem, BatchPasteToolStripMenuItem });
         }
         private void SaveCalibrationItem_Hander(object sender, EventArgs e)
         {

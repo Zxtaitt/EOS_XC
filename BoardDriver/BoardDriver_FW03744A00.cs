@@ -98,7 +98,7 @@ namespace BoardDriver
 
             SendOutputModeForSingleChannel(Channel, SourceType);
 
-            //StepPower(Channel, GetClampPreOpenValue(SourceType, Direction), 1, true);
+            StepPower(Channel, GetClampPreOpenValue(SourceType, Direction), 1, true);
 
             CtrlSingleChannelOutput(Channel, true);
 
