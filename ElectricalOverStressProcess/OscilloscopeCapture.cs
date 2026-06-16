@@ -9,7 +9,7 @@ namespace ElectricalOverStressProcess
     /// <summary>
     /// 连续采图：不连驱动板，仅使用示波器。
     /// 按计划中通道1的配置设置示波器（含触发方式），让示波器连续运行(:RUN)后，
-    /// 每隔“通道1的示波器基础时间刻度 × 10”秒截取一张当前屏幕，共 96 张，命名 ch1~ch96。
+    /// 每隔“通道1的示波器基础时间刻度 × 10”秒截取一张当前屏幕，共 96 张，命名 Channel_通道号_时间戳。
     /// 与 EOS 检测流程相互独立，不受 Process 中的调试开关影响。
     /// </summary>
     public class OscilloscopeCapture
@@ -94,17 +94,23 @@ namespace ElectricalOverStressProcess
             try
             {
                 byte[] ResultsArray = Oscilloscope.DoQueryIEEEBlock(":DISPlay:DATA? PNG, COLor");
-                string SavePath = Path.Combine(SaveDir, "ch" + Index + ".PNG");
+                string FileName = BuildCaptureFileName(Index, DateTime.Now);
+                string SavePath = Path.Combine(SaveDir, FileName);
                 using (FileStream fStream = File.Open(SavePath, FileMode.Create))
                 {
                     fStream.Write(ResultsArray, 0, ResultsArray.Length);
                 }
-                SetLog("已保存 ch" + Index + " (" + Index + "/" + ImageCount + ")");
+                SetLog("已保存 " + FileName + " (" + Index + "/" + ImageCount + ")");
             }
             catch (Exception ex)
             {
-                SetLog("错误:ch" + Index + " 采图失败! " + ex.Message);
+                SetLog("错误:Channel_" + Index + " 采图失败! " + ex.Message);
             }
+        }
+
+        internal static string BuildCaptureFileName(int Channel, DateTime CaptureTime)
+        {
+            return "Channel_" + Channel + "_" + CaptureTime.ToString("yyyy_MM_dd_HH_mm_ss") + ".PNG";
         }
 
         private string CreateSaveDirectory()
